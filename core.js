@@ -110,6 +110,7 @@ export function createClawFileServer(cfg) {
       'Content-Type': 'text/html; charset=utf-8',
       'Content-Length': buf.length,
       'X-Content-Type-Options': 'nosniff',
+      'Access-Control-Allow-Origin': '*',
       'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'",
     });
     res.end(buf);
@@ -414,7 +415,7 @@ ${tag}`;
       if (auth.mode === 'basic' && !basicAuthed(req)) {
         const qp = new URLSearchParams(query);
         if (!tokenAuthed(req, qp)) {
-          res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ClawFileServer"', 'Content-Type': 'text/plain' });
+          res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ClawFileServer"', 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
           res.end('ClawFileServer: login required');
           return true;
         }

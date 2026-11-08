@@ -83,6 +83,7 @@ r = await get(`/cfs${tmp}/outside.txt`);
 ok('outside root -> 403', r.status === 403);
 r = await get('/cfs/etc/hosts');
 ok('/etc/hosts -> 403', r.status === 403);
+ok('403 carries CORS header', r.headers.get('access-control-allow-origin') === '*');
 
 // 9. path traversal blocked
 r = await get(`/cfs${rwDir}/../outside.txt`);
@@ -127,6 +128,7 @@ await new Promise((r2) => tokServer.listen(0, '127.0.0.1', r2));
 const tbase = `http://127.0.0.1:${tokServer.address().port}`;
 r = await fetch(`${tbase}/cfs/`);
 ok('token server: 401 without creds or token', r.status === 401);
+ok('401 carries CORS header', r.headers.get('access-control-allow-origin') === '*');
 r = await fetch(`${tbase}/cfs/?t=share-token-123`);
 ok('token via ?t= -> 200', r.status === 200);
 r = await fetch(`${tbase}/cfs/?t=wrong-token-value`);

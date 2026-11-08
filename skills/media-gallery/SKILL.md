@@ -20,8 +20,11 @@ it works whether or not the viewer's browser has the basic-auth login cached.
 ## Setup steps
 
 1. **Pick the public base URL** (`BASE`): the ClawFileServer URL as the *viewer's
-   browser* reaches it — e.g. `https://files.example.com` behind a reverse proxy,
-   or `http://gateway-host:18789/clawfileserver` direct. No trailing slash.
+   browser* reaches it — e.g. `https://files.example.com` behind a reverse proxy
+   that rewrites in the `/clawfileserver` prefix, or `http://gateway-host:18789/clawfileserver`
+   direct. No trailing slash. If the proxy's rewrite already adds the plugin's
+   basePath (e.g. `^/(.*)$ → /clawfileserver/$1`), do NOT repeat the prefix in
+   BASE — a doubled prefix returns 403 (`outside configured roots`).
 2. **Create the share token** (≥12 chars): `openssl rand -hex 16`.
    Set it as a JSON string — unquoted values can parse as non-string and the
    schema rejects them:
@@ -45,6 +48,9 @@ it works whether or not the viewer's browser has the basic-auth login cached.
 
 - `netOrigins` must exactly match the BASE origin (scheme + host [+ port]);
   otherwise the widget sandbox blocks the fetches.
+- The viewer's device must be able to resolve and reach BASE. A LAN-only or
+  VPN-only DNS name (no public A record) fails with a bare `Failed to fetch`
+  off-network — pick an origin that matches where the dashboard is viewed from.
 - Keep thumbnails as fetch → blob → dataURL. The widget sandbox's CSP restricts
   `img-src`; a plain `<img src="https://…">` may render blank. Verify before changing.
 - Android WebView silently ignores `target="_blank"` and `window.open`; the
