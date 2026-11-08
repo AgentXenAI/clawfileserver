@@ -2,14 +2,23 @@
 // Mounts a file browser / preview / editor HTTP route on the Gateway port.
 import { definePluginEntry } from 'openclaw/plugin-sdk/plugin-entry';
 import os from 'node:os';
+import path from 'node:path';
+import fs from 'node:fs';
 import { createClawFileServer } from './core.js';
+
+function defaultWorkspace() {
+  const state = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), '.openclaw');
+  const candidates = [process.env.OPENCLAW_STATE_DIR && path.join(state, 'workspace'), path.join(state, 'workspace')];
+  for (const c of candidates) if (c && fs.existsSync(c)) return c;
+  return process.cwd();
+}
 
 function normalizeConfig(pluginConfig, api) {
   const c = pluginConfig || {};
   const basePath = (c.basePath || '/clawfileserver').replace(/\/+$/, '');
   let roots = Array.isArray(c.roots) && c.roots.length > 0
     ? c.roots
-    : [{ path: api.config?.agents?.defaults?.workspace || process.cwd(), mode: 'rw' }];
+    : [{ path: c.workspace || api.config?.agents?.defaults?.workspace || defaultWorkspace(), mode: 'rw' }];
   let auth = { mode: 'none', ...(c.auth || {}) };
   if (auth.mode === 'basic' && (!auth.user || !auth.password)) {
     auth = { ...auth, user: auth.user || 'admin' };
