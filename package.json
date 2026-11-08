@@ -1,0 +1,33 @@
+{
+  "name": "clawfileserver",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin: browse, preview, and edit files over HTTP on the Gateway port, with a built-in text editor and conflict-safe saves",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AgentXenAI/clawfileserver.git"
+  },
+  "homepage": "https://github.com/AgentXenAI/clawfileserver#readme",
+  "bugs": {
+    "url": "https://github.com/AgentXenAI/clawfileserver/issues"
+  },
+  "keywords": ["openclaw", "openclaw-plugin", "file-browser", "file-editor", "webdav-lite"],
+  "files": ["index.js", "core.js", "openclaw.plugin.json", "README.md", "LICENSE", "assets/icon.png"],
+  "dependencies": {},
+  "peerDependencies": {
+    "openclaw": ">=2026.1.0"
+  },
+  "openclaw": {
+    "extensions": ["./index.js"],
+    "compat": {
+      "pluginApi": ">=2026.1.0"
+    },
+    "build": {
+      "openclawVersion": "2026.11.1"
+    }
+  },
+  "scripts": {
+    "test": "node test/harness.mjs"
+  }
+}
