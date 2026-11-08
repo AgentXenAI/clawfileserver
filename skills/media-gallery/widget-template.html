@@ -25,10 +25,11 @@
 (function(){
 var BASE="__BASE__",TOKEN="__TOKEN__",DIR="__DIR__",MAX=__MAX__;
 var IMG_RE=/\.(png|jpe?g|webp|gif)$/i;
+var DIRP=DIR.split('/').map(encodeURIComponent).join('/');
 var root=document.getElementById('xmg');
 var shots={};
-function rawUrl(n){return BASE+DIR+'/'+encodeURIComponent(n)+'?raw=1&t='+TOKEN;}
-function pageUrl(n){return BASE+DIR+'/'+encodeURIComponent(n)+'?t='+TOKEN;}
+function rawUrl(n){return BASE+DIRP+'/'+encodeURIComponent(n)+'?raw=1&t='+TOKEN;}
+function pageUrl(n){return BASE+DIRP+'/'+encodeURIComponent(n)+'?t='+TOKEN;}
 function toDataURL(b){return new Promise(function(ok,no){var fr=new FileReader();fr.onload=function(){ok(fr.result);};fr.onerror=no;fr.readAsDataURL(b);});}
 function fmtDate(ms){return ms?new Date(ms).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'?';}
 function fmtKB(b){return b==null?'?':Math.round(b/1024)+' KB';}
@@ -106,7 +107,7 @@ function grid(list,tot){
 }
 function refresh(){
   root.innerHTML='<div class="foot">loading\u2026</div>';
-  fetch(BASE+DIR+'/?json=1&t='+TOKEN).then(function(r){
+  fetch(BASE+DIRP+'/?json=1&t='+TOKEN).then(function(r){
     if(!r.ok)throw new Error('HTTP '+r.status+(r.status===401?' (bad or missing token)':''));
     return r.json();
   }).then(function(j){
