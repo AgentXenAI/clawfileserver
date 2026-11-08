@@ -115,7 +115,9 @@ reload time.
   `target="_blank"`, so the template detects **WebView only** via the `"; wv)"`
   UA token (or an `OpenClaw` UA marker) and switches the detail view to the
   copy-URL fallback (clipboard API + execCommand). Never match bare `Android`:
-  mobile browsers viewing the dashboard are web and must get real links.
+  mobile browsers viewing the dashboard are web and must get real links
+  (confirmed: OpenClaw Android app UA contains `; wv)`; the owner verified both
+  modes on web + app, 2026-11-08).
   Keep both modes; don't "simplify" the web links into the Android fallback.
 - Previews showing 401 → token type mismatch (number vs string in config) or a
   stale widget; re-check step 2 and re-pin.
