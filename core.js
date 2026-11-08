@@ -656,7 +656,11 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
     const bp = basePath.replace(/\/+$/, '');
     try {
       let raw = (req.url || '/');
-      if (raw.startsWith(bp)) raw = raw.slice(bp.length) || '/';
+      // Strip the route prefix. Dedicated vhostnames that proxy us under a bare
+      // hostname (e.g. xenfs.jjse.net rewriting ^/(.*)$ -> /clawfileserver/$1)
+      // re-add the prefix to our own generated absolute links, so tolerate it
+      // appearing more than once.
+      while (bp && (raw === bp || raw.startsWith(bp + '/'))) raw = raw.slice(bp.length) || '/';
       let query = '';
       const q = raw.indexOf('?');
       if (q >= 0) { query = raw.slice(q); raw = raw.slice(0, q); }
