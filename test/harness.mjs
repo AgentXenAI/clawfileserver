@@ -61,6 +61,12 @@ ok('listing shows file', r.status === 200 && (await r.text()).includes('note.md'
 r = await get(`/cfs${rwDir}/note.md`);
 ok('preview + edit link', r.status === 200 && (await r.text()).includes('edit=1'));
 
+// 3b. double route prefix (dedicated vhost rewrites re-add basePath to links)
+r = await get(`/cfs/cfs${rwDir}/note.md`);
+ok('double-prefixed path serves file', r.status === 200 && (await r.text()).includes('hello'));
+r = await get('/cfs/cfs/');
+ok('double-prefixed roots index', r.status === 200 && (await r.text()).includes('RW'));
+
 // 4. editor page
 r = await get(`/cfs${rwDir}/note.md?edit=1`);
 ok('editor renders content', r.status === 200 && (await r.text()).includes('# hello'));
