@@ -23,13 +23,25 @@
 </style>
 <script>
 (function(){
-var BASE="__BASE__",TOKEN="__TOKEN__",DIR="__DIR__",MAX=__MAX__;
+var BASE="__BASE__",TOKEN="__TOKEN__",DIR="__DIR__",MAX=parseInt("__MAX__",10)||12,BP="__BASEPATH__";
+if(!BASE||BASE==="__BASE__")BASE="auto";
+if(!BP||BP==="__BASEPATH__")BP="clawfileserver";
+BP=BP.replace(/^\/+/,"").replace(/\/+$/,"");
+// BASE="auto" (default): serve from the same domain as the Control UI, under the
+// plugin basePath. The widget sandbox runs on its own origin, so build absolute
+// URLs from the host-provided Control UI origin (available shortly after init).
+function resolveBase(){
+  if(BASE!=="auto")return BASE.replace(/\/+$/,"");
+  var o=window.openclaw&&window.openclaw.host&&window.openclaw.host.controlUiBaseUrl;
+  if(!o)return null;
+  try{return new URL(o,location.href).origin+(BP?"/"+BP:"");}catch(_){return null;}
+}
 var IMG_RE=/\.(png|jpe?g|webp|gif)$/i;
 var DIRP=DIR.split('/').map(encodeURIComponent).join('/');
 var root=document.getElementById('xmg');
 var shots={};
-function rawUrl(n){return BASE+DIRP+'/'+encodeURIComponent(n)+'?raw=1&t='+TOKEN;}
-function pageUrl(n){return BASE+DIRP+'/'+encodeURIComponent(n)+'?t='+TOKEN;}
+function rawUrl(n){return resolveBase()+DIRP+'/'+encodeURIComponent(n)+'?raw=1&t='+TOKEN;}
+function pageUrl(n){return resolveBase()+DIRP+'/'+encodeURIComponent(n)+'?t='+TOKEN;}
 function toDataURL(b){return new Promise(function(ok,no){var fr=new FileReader();fr.onload=function(){ok(fr.result);};fr.onerror=no;fr.readAsDataURL(b);});}
 function fmtDate(ms){return ms?new Date(ms).toLocaleString('en-US',{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}):'?';}
 function fmtKB(b){return b==null?'?':Math.round(b/1024)+' KB';}
@@ -106,23 +118,32 @@ function grid(list,tot){
   root.appendChild(foot);
 }
 function refresh(){
+  var b=resolveBase();
+  if(!b){
+    if((refresh.tries=(refresh.tries||0)+1)<40){
+      root.innerHTML='<div class="foot">loading\u2026</div>';
+      setTimeout(refresh,250);return;
+    }
+    fail('could not detect the Control UI origin \u2014 set BASE to an explicit URL');
+    return;
+  }
   root.innerHTML='<div class="foot">loading\u2026</div>';
-  fetch(BASE+DIRP+'/?json=1&t='+TOKEN).then(function(r){
+  fetch(b+DIRP+'/?json=1&t='+TOKEN).then(function(r){
     if(!r.ok)throw new Error('HTTP '+r.status+(r.status===401?' (bad or missing token)':''));
     return r.json();
   }).then(function(j){
     var all=(j.entries||[]).filter(function(e){return !e.dir&&IMG_RE.test(e.name);});
     all.sort(function(a,b){return (b.mtime||0)-(a.mtime||0);});
     grid(all.slice(0,MAX),all.length);
-  }).catch(function(e){
-    root.innerHTML='';
-    var bar=document.createElement('div');bar.className='bar';
-    var rf=document.createElement('button');rf.className='rf';rf.textContent='\u21bb retry';
-    rf.addEventListener('click',refresh);bar.appendChild(rf);root.appendChild(bar);
-    var er=document.createElement('div');er.className='foot';
-    er.textContent='gallery unavailable: '+e.message+' \u2014 check the share token and network, then retry';
-    root.appendChild(er);
-  });
+  }).catch(function(e){fail('gallery unavailable: '+e.message+' \u2014 check the share token and network, then retry');});
+}
+function fail(msg){
+  root.innerHTML='';
+  var bar=document.createElement('div');bar.className='bar';
+  var rf=document.createElement('button');rf.className='rf';rf.textContent='\u21bb retry';
+  rf.addEventListener('click',refresh);bar.appendChild(rf);root.appendChild(bar);
+  var er=document.createElement('div');er.className='foot';er.textContent=msg;
+  root.appendChild(er);
 }
 refresh();
 })();
