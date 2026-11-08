@@ -1,6 +1,6 @@
 {
   "name": "clawfileserver",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "OpenClaw plugin: browse, preview, and edit files over HTTP on the Gateway port, with a built-in text editor and conflict-safe saves",
   "type": "module",
   "license": "MIT",
