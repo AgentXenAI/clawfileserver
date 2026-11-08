@@ -2,8 +2,9 @@
   "id": "clawfileserver",
   "name": "ClawFileServer",
   "description": "Browse, preview, and edit files over HTTP on the Gateway port — directory listings, media previews, and a conflict-safe text editor.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "categories": ["documents-files"],
+  "skills": ["skills"],
   "activation": {
     "onStartup": true
   },
@@ -38,7 +39,8 @@
         "properties": {
           "mode": { "enum": ["none", "basic"], "default": "none" },
           "user": { "type": "string" },
-          "password": { "type": "string" }
+          "password": { "type": "string" },
+          "token": { "type": "string", "minLength": 12, "description": "Optional read-only share token. GET/HEAD requests with ?t=<token> or x-cfs-token header bypass basic auth (reads only). For dashboard widgets and preview links." }
         },
         "description": "Route-level auth. 'none' relies on Gateway/network protection; 'basic' adds HTTP basic auth (a password is generated and logged once if unset)."
       },
@@ -59,7 +61,8 @@
     "secretInputs": {
       "bundledDefaultEnabled": false,
       "paths": [
-        { "path": "auth.password", "expected": "string" }
+        { "path": "auth.password", "expected": "string" },
+        { "path": "auth.token", "expected": "string" }
       ]
     }
   }

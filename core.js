@@ -355,22 +355,70 @@ ${tag}`;
   }
 
   /**
+   * Optional read-only share token: GET/HEAD requests carrying ?t=<token> or the
+   * x-cfs-token header pass without basic auth. Never grants writes.
+   */
+  function tokenAuthed(req, qp) {
+    if (!auth.token) return false;
+    if (req.method !== 'GET' && req.method !== 'HEAD') return false;
+    const q = qp.get('t');
+    const h = req.headers['x-cfs-token'];
+    return (typeof q === 'string' && q.length > 0 && eqSafe(q, auth.token))
+      || (typeof h === 'string' && h.length > 0 && eqSafe(h, auth.token));
+  }
+
+  function jsonListing(res, p) {
+    let ents;
+    try {
+      ents = fs.readdirSync(p, { withFileTypes: true });
+    } catch (e) {
+      const buf = Buffer.from(JSON.stringify({ error: e.code === 'EACCES' ? 'permission denied' : e.code }));
+      return res.writeHead(e.code === 'EACCES' ? 403 : 500, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }), res.end(buf);
+    }
+    if (!cfg.showHidden) ents = ents.filter((e) => !e.name.startsWith('.'));
+    const truncated = ents.length > maxList;
+    if (truncated) ents = ents.slice(0, maxList);
+    const entries = ents.map((e) => {
+      let st = null;
+      try { st = fs.statSync(path.join(p, e.name)); } catch { /* dangling */ }
+      return {
+        name: e.name,
+        dir: st ? st.isDirectory() : e.isDirectory(),
+        size: st && st.isFile() ? st.size : null,
+        mtime: st ? Math.round(st.mtimeMs) : null,
+      };
+    });
+    const buf = Buffer.from(JSON.stringify({ path: p, truncated, entries }));
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Length': buf.length,
+      'Access-Control-Allow-Origin': '*',
+      'X-Content-Type-Options': 'nosniff',
+      'Cache-Control': 'no-store',
+    });
+    res.end(buf);
+  }
+
+  /**
    * Handle a request. basePath is the route prefix (no trailing slash).
    * Returns true when handled (always).
    */
   async function handle(req, res, basePath) {
     const bp = basePath.replace(/\/+$/, '');
     try {
-      if (auth.mode === 'basic' && !basicAuthed(req)) {
-        res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ClawFileServer"', 'Content-Type': 'text/plain' });
-        res.end('ClawFileServer: login required');
-        return true;
-      }
       let raw = (req.url || '/');
       if (raw.startsWith(bp)) raw = raw.slice(bp.length) || '/';
       let query = '';
       const q = raw.indexOf('?');
       if (q >= 0) { query = raw.slice(q); raw = raw.slice(0, q); }
+      if (auth.mode === 'basic' && !basicAuthed(req)) {
+        const qp = new URLSearchParams(query);
+        if (!tokenAuthed(req, qp)) {
+          res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ClawFileServer"', 'Content-Type': 'text/plain' });
+          res.end('ClawFileServer: login required');
+          return true;
+        }
+      }
       let p;
       try { p = decodeURIComponent(raw); }
       catch { return err(res, 400, 'bad URL encoding'); }
@@ -401,7 +449,10 @@ ${tag}`;
         if (e.code === 'EACCES') return err(res, 403, `Permission denied: ${rp}`);
         return err(res, 500, `${e.code}: ${rp}`);
       }
-      if (st.isDirectory()) return listing(res, bp, rp.replace(/\/+$/, '') || '/');
+      if (st.isDirectory()) {
+        if (/[?&]json=1/.test(query)) return jsonListing(res, rp.replace(/\/+$/, '') || '/');
+        return listing(res, bp, rp.replace(/\/+$/, '') || '/');
+      }
       return previewOrDownload(req, res, bp, rp, st);
     } catch (e) {
       log.error?.(`clawfileserver error: ${e?.stack || e}`);
