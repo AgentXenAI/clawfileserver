@@ -1,0 +1,62 @@
+{
+  "id": "clawfileserver",
+  "name": "ClawFileServer",
+  "description": "Browse, preview, and edit files over HTTP on the Gateway port — directory listings, media previews, and a conflict-safe text editor.",
+  "version": "0.1.0",
+  "categories": ["documents-files"],
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "basePath": {
+        "type": "string",
+        "default": "/clawfileserver",
+        "pattern": "^/[A-Za-z0-9_-]{1,60}$",
+        "description": "URL path prefix mounted on the Gateway HTTP port."
+      },
+      "roots": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["path"],
+          "properties": {
+            "path": { "type": "string", "minLength": 1 },
+            "mode": { "enum": ["ro", "rw"], "default": "ro" },
+            "label": { "type": "string" }
+          }
+        },
+        "default": [],
+        "description": "Directory trees to expose. Empty defaults to the agent workspace in read-write mode. mode=rw enables upload, mkdir, and editing."
+      },
+      "auth": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": { "enum": ["none", "basic"], "default": "none" },
+          "user": { "type": "string" },
+          "password": { "type": "string" }
+        },
+        "description": "Route-level auth. 'none' relies on Gateway/network protection; 'basic' adds HTTP basic auth (a password is generated and logged once if unset)."
+      },
+      "maxPreviewBytes": { "type": "integer", "minimum": 1024, "maximum": 16777216, "default": 1048576 },
+      "maxEditBytes": { "type": "integer", "minimum": 1024, "maximum": 8388608, "default": 524288 },
+      "maxListEntries": { "type": "integer", "minimum": 10, "maximum": 50000, "default": 5000 },
+      "showHidden": { "type": "boolean", "default": false }
+    }
+  },
+  "configContracts": {
+    "dangerousFlags": [
+      { "path": "auth.mode", "equals": "none" }
+    ],
+    "secretInputs": {
+      "bundledDefaultEnabled": false,
+      "paths": [
+        { "path": "auth.password", "expected": "string" }
+      ]
+    }
+  }
+}
