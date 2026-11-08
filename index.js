@@ -16,6 +16,7 @@ function defaultWorkspace() {
 function normalizeConfig(pluginConfig, api) {
   const c = pluginConfig || {};
   const basePath = (c.basePath || '/clawfileserver').replace(/\/+$/, '');
+  const stateDir = process.env.OPENCLAW_STATE_DIR || path.join(os.homedir(), '.openclaw');
   let roots = Array.isArray(c.roots) && c.roots.length > 0
     ? c.roots
     : [{ path: c.workspace || api.config?.agents?.defaults?.workspace || defaultWorkspace(), mode: 'rw' }];
@@ -38,6 +39,13 @@ function normalizeConfig(pluginConfig, api) {
     maxEditBytes: c.maxEditBytes ?? 512 * 1024,
     maxListEntries: c.maxListEntries ?? 5000,
     showHidden: c.showHidden ?? false,
+    shares: {
+      enabled: c.shares?.enabled ?? true,
+      stateFile: c.shares?.stateFile || path.join(stateDir, 'clawfileserver', 'shares.json'),
+      defaultTtl: c.shares?.defaultTtl || '24h',
+      maxTtl: c.shares?.maxTtl || '30d',
+      maxUploadBytes: c.shares?.maxUploadBytes ?? 2147483648,
+    },
     logger: api.logger,
   };
 }

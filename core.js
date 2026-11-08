@@ -54,6 +54,30 @@ function eqSafe(a, b) {
   return ba.length === bb.length && crypto.timingSafeEqual(ba, bb);
 }
 
+// Capability codes: unambiguous alphabet (no 0/O/1/l/i), 10 chars ≈ 59 bits.
+const CODE_ALPHA = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+function genCode(len = 10) {
+  const b = crypto.randomBytes(len);
+  let s = '';
+  for (let i = 0; i < len; i++) s += CODE_ALPHA[b[i] % CODE_ALPHA.length];
+  return s;
+}
+
+/** "90m" | "24h" | "7d" | "45s" -> ms; NaN on garbage. */
+function parseTtl(v, defMs) {
+  if (v == null || v === '') return defMs;
+  const m = /^(\d+)\s*([smhd])$/i.exec(String(v).trim());
+  if (!m) return NaN;
+  return Number(m[1]) * { s: 1e3, m: 6e4, h: 36e5, d: 864e5 }[m[2].toLowerCase()];
+}
+
+/** basename-only, control chars and leading dots stripped */
+function safeName(n) {
+  const s = String(n || '').replace(/\\/g, '/').split('/').pop()
+    .replace(/[\x00-\x1f\x7f]/g, '').replace(/^\.+/, '').trim().slice(0, 200);
+  return s || 'file';
+}
+
 const CSS = `
 :root{color-scheme:dark}
 body{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0d1117;color:#c9d1d9;margin:0;padding:24px;max-width:1100px}
@@ -368,6 +392,230 @@ ${tag}`;
       || (typeof h === 'string' && h.length > 0 && eqSafe(h, auth.token));
   }
 
+  // ---- expiring share links + drop portals (capability URLs) ----------------
+  // Records live in a JSON state file so they survive restarts. The code IS the
+  // credential for /s/ and /d/; admin endpoints always require basic auth.
+  const shCfg = cfg.shares || {};
+  const shEnabled = shCfg.enabled !== false && !!shCfg.stateFile;
+  const store = { shares: {}, drops: {} };
+  if (shEnabled) {
+    try {
+      const loaded = JSON.parse(fs.readFileSync(shCfg.stateFile, 'utf8'));
+      if (loaded && typeof loaded === 'object') {
+        Object.assign(store.shares, loaded.shares || {});
+        Object.assign(store.drops, loaded.drops || {});
+      }
+    } catch { /* first run or unreadable: start fresh */ }
+    // drop records dead for more than 7 days
+    const cutoff = Date.now() - 7 * 864e5;
+    for (const [kind, coll] of [['shares', store.shares], ['drops', store.drops]]) {
+      for (const [code, rec] of Object.entries(coll)) {
+        if (rec.exp && rec.exp < cutoff) delete coll[code];
+      }
+    }
+  }
+  function saveStore() {
+    if (!shCfg.stateFile) return;
+    try {
+      fs.mkdirSync(path.dirname(shCfg.stateFile), { recursive: true });
+      const tmpF = `${shCfg.stateFile}.tmp-${process.pid}`;
+      fs.writeFileSync(tmpF, JSON.stringify(store, null, 1));
+      fs.renameSync(tmpF, shCfg.stateFile);
+    } catch (e) { log.error?.(`clawfileserver: share store save failed: ${e?.code || e}`); }
+  }
+  const statusOf = (rec) => rec.rev ? 'revoked'
+    : (rec.exp && Date.now() > rec.exp) ? 'expired'
+    : (rec.max && rec.n >= rec.max) ? 'exhausted' : 'active';
+  function jsonOut(res, code, obj) {
+    const buf = Buffer.from(JSON.stringify(obj, null, 1));
+    res.writeHead(code, {
+      'Content-Type': 'application/json', 'Content-Length': buf.length,
+      'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store',
+    });
+    res.end(buf);
+  }
+  function ttlFrom(qp) {
+    const def = parseTtl(shCfg.defaultTtl || '24h', 864e5);
+    const maxTtl = parseTtl(shCfg.maxTtl || '30d', 30 * 864e5);
+    const ttl = qp.get('ttl') == null ? def : parseTtl(qp.get('ttl'), NaN);
+    if (!(ttl > 0)) return { err: 'bad ttl (use e.g. 90m, 24h, 7d)' };
+    if (ttl > maxTtl) return { err: `ttl exceeds maxTtl (${shCfg.maxTtl || '30d'})` };
+    return { ttl };
+  }
+  function handleShareCreate(req, res, bp, qp) {
+    if (!shEnabled) return err(res, 503, 'shares are disabled (no shares.stateFile configured)');
+    const target = qp.get('path');
+    if (!target) return err(res, 400, '?path=<absolute file or dir> required');
+    const rp = path.resolve('/' + String(target).replace(/^\/+/, ''));
+    if (!inRoot(rp)) return err(res, 403, 'outside configured roots');
+    let st;
+    try { st = fs.statSync(rp); } catch (e) { return err(res, 404, `not found: ${e.code}`); }
+    const t = ttlFrom(qp); if (t.err) return err(res, 400, t.err);
+    const maxN = Math.max(0, parseInt(qp.get('max') || '0', 10) || 0);
+    let code; do { code = genCode(); } while (store.shares[code]);
+    const rec = { code, path: rp, dir: st.isDirectory(), exp: Date.now() + t.ttl, max: maxN, n: 0, rev: false, ctime: Date.now() };
+    store.shares[code] = rec; saveStore();
+    log.info?.(`clawfileserver share created ${code} -> ${rp} (${statusOf(rec)})`);
+    jsonOut(res, 201, { ok: true, code, url: `${bp}/s/${code}`, kind: rec.dir ? 'dir' : 'file', expires: new Date(rec.exp).toISOString(), maxDownloads: maxN || 'unlimited' });
+  }
+  function handleDropCreate(req, res, bp, qp) {
+    if (!shEnabled) return err(res, 503, 'drops are disabled (no shares.stateFile configured)');
+    const target = qp.get('dir');
+    if (!target) return err(res, 400, '?dir=<absolute destination dir> required');
+    const rp = path.resolve('/' + String(target).replace(/^\/+/, ''));
+    if (!inWritable(rp)) return err(res, 403, 'drop target must be under a read-write root');
+    const t = ttlFrom(qp); if (t.err) return err(res, 400, t.err);
+    const maxN = Math.max(0, parseInt(qp.get('max') || '0', 10) || 0);
+    let code; do { code = genCode(); } while (store.drops[code]);
+    const rec = { code, dir: rp, exp: Date.now() + t.ttl, max: maxN, n: 0, rev: false, ctime: Date.now() };
+    store.drops[code] = rec; saveStore();
+    log.info?.(`clawfileserver drop portal created ${code} -> ${rp}`);
+    jsonOut(res, 201, { ok: true, code, url: `${bp}/d/${code}`, dir: rp, expires: new Date(rec.exp).toISOString(), maxUploads: maxN || 'unlimited' });
+  }
+  function handleSharesList(res) {
+    const row = (kind, rec) => ({
+      code: rec.code, kind, path: rec.path || rec.dir, status: statusOf(rec),
+      created: new Date(rec.ctime).toISOString(), expires: new Date(rec.exp).toISOString(),
+      used: rec.n, max: rec.max || 'unlimited',
+    });
+    jsonOut(res, 200, {
+      shares: Object.values(store.shares).map((r) => row('share', r)),
+      drops: Object.values(store.drops).map((r) => row('drop', r)),
+    });
+  }
+  function handleRevoke(req, res, qp) {
+    const code = qp.get('code') || '';
+    const rec = store.shares[code] || store.drops[code];
+    if (!rec) return err(res, 404, 'no such code');
+    rec.rev = true; saveStore();
+    jsonOut(res, 200, { ok: true, code, status: 'revoked' });
+  }
+
+  function shareListing(res, bp, rec, rel) {
+    let ents;
+    try { ents = fs.readdirSync(rec.path, { withFileTypes: true }); }
+    catch (e) { return err(res, 500, `cannot read share dir: ${e.code}`); }
+    if (!cfg.showHidden) ents = ents.filter((e) => !e.name.startsWith('.'));
+    const rows = ents.map((e) => {
+      let st = null; try { st = fs.statSync(path.join(rec.path, e.name)); } catch {}
+      const href = `${bp}/s/${rec.code}/${[...rel, e.name].map(encodeURIComponent).join('/')}`;
+      return `<tr><td>${e.isDirectory() ? '📁' : '📄'} <a href="${esc(href)}">${esc(e.name)}</a></td>` +
+        `<td>${st && st.isFile() ? fmtSize(st.size) : ''}</td></tr>`;
+    }).join('\n');
+    sendHTML(res, 200, page('shared folder',
+      `<h1>📁 shared folder</h1><div class="bar"><span class="note">${esc(rel.join('/') || 'files')}</span></div>` +
+      `<table><tr><th>name</th><th>size</th></tr>${rows}</table>`));
+  }
+
+  function handleShareGet(req, res, bp, seg) {
+    const parts = seg.split('/').filter(() => true).filter((s, i) => !(i === 0 && s === ''));
+    const code = parts.shift() || '';
+    const rec = store.shares[code];
+    if (!rec) return err(res, 404, 'no such share');
+    const status = statusOf(rec);
+    if (status !== 'active') return err(res, 410, `this share link is ${status}`);
+    let target;
+    if (rec.dir) {
+      let rel;
+      try { rel = parts.map(decodeURIComponent); }
+      catch { return err(res, 400, 'bad URL encoding'); }
+      target = path.resolve(rec.path, ...rel);
+      if (target !== rec.path && !target.startsWith(rec.path + '/')) return err(res, 403, 'outside share');
+    } else {
+      if (parts.length) return err(res, 404, 'not found');
+      target = rec.path;
+    }
+    if (!inRoot(target)) return err(res, 403, 'path no longer under configured roots');
+    let st;
+    try { st = fs.statSync(target); } catch { return err(res, 404, 'file no longer exists'); }
+    if (st.isDirectory()) {
+      if (rec.dir) return shareListing(res, bp, rec, parts.map((x) => { try { return decodeURIComponent(x); } catch { return x; } }));
+      return err(res, 404, 'not a file');
+    }
+    // count one download per non-continuation GET
+    if (req.method !== 'HEAD') {
+      const rg = req.headers.range;
+      if (!rg || /^bytes=0-/.test(rg)) { rec.n++; saveStore(); }
+    }
+    const dl = /[?&]dl=1/.test(req.url || '');
+    return streamFile(req, res, target, st, dl);
+  }
+
+  function dropPage(res, bp, rec) {
+    const left = Math.max(0, Math.round((rec.exp - Date.now()) / 1000));
+    const body = `<h1>📥 drop files</h1>
+<div class="bar"><span class="note" id="cd">link expires in ${left}s</span> · <span class="sz">${rec.max ? `${rec.max - rec.n} of ${rec.max} uploads left` : 'unlimited uploads'}</span></div>
+<div id="zone" style="border:2px dashed #30363d;border-radius:10px;padding:48px;text-align:center;color:#8b949e">drag &amp; drop files here — or <label style="color:#58a6ff;cursor:pointer">browse<input id="f" type="file" multiple hidden></label></div>
+<div id="list" style="margin-top:14px"></div>
+<script>
+const CODE=${JSON.stringify(rec.code)},BP=${JSON.stringify(bp)};
+const zone=document.getElementById('zone'),list=document.getElementById('list'),f=document.getElementById('f');
+let secs=${left};
+setInterval(()=>{secs=document.getElementById('cd').textContent='link expires in '+Math.max(0,--secs)+'s';},1000);
+function up(file){
+  const row=document.createElement('div');row.className='bar';
+  row.innerHTML='<span>'+esc(file.name)+' ('+fmt(file.size)+')</span> <progress max="100" value="0" style="width:200px"></progress> <span class="sz">0%</span>';
+  list.appendChild(row);
+  const pr=row.querySelector('progress'),st=row.querySelector('.sz');
+  const x=new XMLHttpRequest();
+  x.open('POST',BP+'/d/'+CODE+'?name='+encodeURIComponent(file.name));
+  x.upload.onprogress=(e)=>{if(e.lengthComputable){pr.value=Math.round(e.loaded*100/e.total);st.textContent=pr.value+'%';}};
+  x.onload=()=>{try{const j=JSON.parse(x.responseText);if(j.ok){st.textContent='\u2713 '+j.name;pr.value=100;}else{st.textContent='\u2717 '+(j.error||('HTTP '+x.status));}}catch{st.textContent='\u2717 HTTP '+x.status;}};
+  x.onerror=()=>{st.textContent='\u2717 network error';};
+  x.send(file);
+}
+function esc(s){return s.replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+function fmt(n){return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KiB':(n/1048576).toFixed(1)+' MiB';}
+addEventListener('dragover',(e)=>{e.preventDefault();zone.style.borderColor='#58a6ff';});
+addEventListener('dragleave',()=>{zone.style.borderColor='#30363d';});
+addEventListener('drop',(e)=>{e.preventDefault();zone.style.borderColor='#30363d';[...e.dataTransfer.files].forEach(up);});
+f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
+</script>`;
+    sendHTML(res, 200, page('drop files', body));
+  }
+
+  function handleDropUpload(req, res, bp, code) {
+    const rec = store.drops[code];
+    if (!rec) return err(res, 404, 'no such drop portal');
+    const status = statusOf(rec);
+    if (status !== 'active') return err(res, 410, `this drop portal is ${status}`);
+    const qp = new URLSearchParams((req.url || '').split('?')[1] || '');
+    const name = safeName(qp.get('name') || req.headers['x-filename'] || 'file');
+    const maxBytes = shCfg.maxUploadBytes || 2 * 1024 ** 3;
+    const day = new Date().toISOString().slice(0, 10);
+    const dir = path.join(rec.dir, day);
+    try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return err(res, 500, `mkdir failed: ${e.code}`); }
+    let target = path.join(dir, name);
+    if (fs.existsSync(target)) {
+      const ext = path.extname(name);
+      target = path.join(dir, `${name.slice(0, Math.max(0, name.length - ext.length))}_${Date.now()}${ext}`);
+    }
+    const tmpF = `${target}.upload-${process.pid}-${Date.now()}`;
+    const out = fs.createWriteStream(tmpF);
+    let size = 0, failed = false;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > maxBytes && !failed) {
+        failed = true;
+        req.unpipe(out);
+        out.end();
+        fs.unlink(tmpF, () => {});
+        err(res, 413, `file exceeds limit (${fmtSize(maxBytes)})`);
+      }
+    });
+    req.on('error', () => { failed = true; fs.unlink(tmpF, () => {}); res.destroy(); });
+    out.on('error', (e) => { if (failed) return; failed = true; fs.unlink(tmpF, () => {}); err(res, 500, `write failed: ${e.code}`); });
+    out.on('finish', () => {
+      if (failed) return;
+      try { fs.renameSync(tmpF, target); }
+      catch (e) { fs.unlink(tmpF, () => {}); return err(res, 500, `rename failed: ${e.code}`); }
+      rec.n++; saveStore();
+      log.info?.(`clawfileserver drop ${code} received ${target} (${fmtSize(size)})`);
+      jsonOut(res, 201, { ok: true, name: path.basename(target), size });
+    });
+    req.pipe(out);
+  }
+
   function jsonListing(res, p) {
     let ents;
     try {
@@ -412,21 +660,52 @@ ${tag}`;
       let query = '';
       const q = raw.indexOf('?');
       if (q >= 0) { query = raw.slice(q); raw = raw.slice(0, q); }
-      if (auth.mode === 'basic' && !basicAuthed(req)) {
-        const qp = new URLSearchParams(query);
-        if (!tokenAuthed(req, qp)) {
-          res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ClawFileServer"', 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
-          res.end('ClawFileServer: login required');
-          return true;
-        }
-      }
       let p;
       try { p = decodeURIComponent(raw); }
       catch { return err(res, 400, 'bad URL encoding'); }
       if (p.includes('\0')) return err(res, 400, 'bad path');
       if (!p.startsWith('/')) p = '/' + p;
+
+      // public capability routes: the code in the URL is the credential
+      if (p.startsWith('/s/') || p === '/s') {
+        if (req.method !== 'GET' && req.method !== 'HEAD') return err(res, 405, 'GET/HEAD only');
+        return handleShareGet(req, res, bp, p.slice(3));
+      }
+      if (p.startsWith('/d/') || p === '/d') {
+        const code = p.slice(3).replace(/\/+$/, '');
+        if (req.method === 'GET' || req.method === 'HEAD') {
+          const rec = store.drops[code];
+          if (!rec) return err(res, 404, 'no such drop portal');
+          const status = statusOf(rec);
+          if (status !== 'active') return err(res, 410, `this drop portal is ${status}`);
+          return dropPage(res, bp, rec);
+        }
+        if (req.method === 'POST') return handleDropUpload(req, res, bp, code.replace(/\/+$/, ''));
+        return err(res, 405, 'GET/POST only');
+      }
+
+      if (auth.mode === 'basic' && !basicAuthed(req)) {
+        const qp0 = new URLSearchParams(query);
+        if (!tokenAuthed(req, qp0)) {
+          res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ClawFileServer"', 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
+          res.end('ClawFileServer: login required');
+          return true;
+        }
+      }
       const url = p + query;
       req.url = url; // downstream helpers inspect query flags on req.url
+      const qp = new URLSearchParams(query);
+
+      // share/drop admin endpoints: basic auth only — the read-only token must
+      // never create, list, or revoke links.
+      if (p === '/_share' || p === '/_drop' || p === '/_revoke' || p === '/_shares') {
+        if (auth.mode === 'basic' && !basicAuthed(req)) return err(res, 403, 'share admin requires basic auth (the read-only token is not enough)');
+        if (p === '/_shares' && req.method === 'GET') return handleSharesList(res);
+        if (req.method !== 'POST') return err(res, 405, 'POST required for share admin actions');
+        if (p === '/_share') return handleShareCreate(req, res, bp, qp);
+        if (p === '/_drop') return handleDropCreate(req, res, bp, qp);
+        return handleRevoke(req, res, qp);
+      }
 
       if (p === '/' || p === '') return sendHTML(res, 200, rootsIndex(bp));
 
