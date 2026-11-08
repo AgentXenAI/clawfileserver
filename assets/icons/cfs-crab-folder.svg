@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- ClawFileServer: crab hugging a folder, blue arrow backdrop. Flat vector, 6 colors. -->
+  <!-- background rounded square -->
+  <rect x="0" y="0" width="512" height="512" rx="96" fill="#0B2545"/>
+  <!-- big blue up arrow (the background) -->
+  <path d="M256 64 L420 208 H338 V452 H174 V208 H92 Z" fill="#38BDF8" stroke="#38BDF8" stroke-width="14" stroke-linejoin="round"/>
+  <!-- folder back + tab -->
+  <rect x="150" y="272" width="92" height="40" rx="12" fill="#E8A33D"/>
+  <rect x="150" y="296" width="212" height="124" rx="16" fill="#E8A33D"/>
+  <!-- crab body (peeks over the folder) -->
+  <ellipse cx="256" cy="302" rx="88" ry="62" fill="#FF7A29"/>
+  <!-- folder front -->
+  <rect x="150" y="318" width="212" height="102" rx="16" fill="#FFC53D"/>
+  <!-- arms -->
+  <line x1="186" y1="306" x2="152" y2="332" stroke="#FF7A29" stroke-width="26" stroke-linecap="round"/>
+  <line x1="326" y1="306" x2="360" y2="332" stroke="#FF7A29" stroke-width="26" stroke-linecap="round"/>
+  <!-- claw palms -->
+  <circle cx="148" cy="336" r="26" fill="#FF7A29"/>
+  <circle cx="364" cy="336" r="26" fill="#FF7A29"/>
+  <!-- claw fingers gripping the folder face -->
+  <rect x="148" y="316" width="46" height="16" rx="8" fill="#FF7A29"/>
+  <rect x="148" y="342" width="46" height="16" rx="8" fill="#FF7A29"/>
+  <rect x="318" y="316" width="46" height="16" rx="8" fill="#FF7A29"/>
+  <rect x="318" y="342" width="46" height="16" rx="8" fill="#FF7A29"/>
+  <!-- eyes -->
+  <circle cx="230" cy="272" r="9" fill="#0B2545"/>
+  <circle cx="282" cy="272" r="9" fill="#0B2545"/>
+</svg>
