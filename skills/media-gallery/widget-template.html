@@ -59,6 +59,7 @@ function detail(it){
   var b=document.createElement('button');b.className='back top';b.textContent='\u2190 Back to gallery';
   b.addEventListener('click',function(){grid(items,total);});
   var url=pageUrl(it.name);
+  var nm=document.createElement('div');nm.className='nm';nm.textContent=it.name+' \u00b7 '+fmtDate(it.mtime)+' \u00b7 '+fmtKB(it.size);
   if(ANDROID){
   var inp=document.createElement('input');inp.className='url';inp.readOnly=true;inp.value=url;
   inp.addEventListener('click',function(){inp.select();});
@@ -69,7 +70,6 @@ function detail(it){
     if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(url).then(function(){done(true);},function(){done(legacy());});}
     else{done(legacy());}
   });
-  var nm=document.createElement('div');nm.className='nm';nm.textContent=it.name+' \u00b7 '+fmtDate(it.mtime)+' \u00b7 '+fmtKB(it.size);
   row.appendChild(inp);row.appendChild(cp);
   d.appendChild(b);d.appendChild(img);d.appendChild(nm);d.appendChild(row);
   var tip=document.createElement('div');tip.className='foot';
