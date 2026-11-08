@@ -13,6 +13,7 @@
 #xmg .meta{font-size:10px;color:var(--muted)}
 #xmg a.lnk{font-size:10px;color:var(--accent);text-decoration:none}
 #xmg a.lnk:hover{text-decoration:underline}
+#xmg a.full{font-family:var(--font-mono);font-size:11px;color:var(--accent);word-break:break-all}
 #xmg .foot{margin-top:8px;font-size:10px;color:var(--muted)}
 #xmg .det{display:flex;flex-direction:column;gap:8px}
 #xmg .det img{width:100%;height:auto;max-height:60vh;aspect-ratio:auto;object-fit:contain;border-radius:var(--radius);background:#000}
@@ -37,6 +38,10 @@ function resolveBase(){
   try{return new URL(o,location.href).origin+(BP?"/"+BP:"");}catch(_){return null;}
 }
 var IMG_RE=/\.(png|jpe?g|webp|gif)$/i;
+// Android WebView: target="_blank" links silently fail and window.open is
+// blocked, so use the copy-URL fallback there. On the web Control UI, plain
+// target="_blank" anchor clicks are forwarded to the host and open a new tab.
+var ANDROID=/\bAndroid\b/i.test(navigator.userAgent);
 var DIRP=DIR.split('/').map(encodeURIComponent).join('/');
 var root=document.getElementById('xmg');
 var shots={};
@@ -54,6 +59,7 @@ function detail(it){
   var b=document.createElement('button');b.className='back top';b.textContent='\u2190 Back to gallery';
   b.addEventListener('click',function(){grid(items,total);});
   var url=pageUrl(it.name);
+  if(ANDROID){
   var inp=document.createElement('input');inp.className='url';inp.readOnly=true;inp.value=url;
   inp.addEventListener('click',function(){inp.select();});
   var cp=document.createElement('button');cp.className='back';cp.textContent='copy URL';
@@ -69,6 +75,10 @@ function detail(it){
   var tip=document.createElement('div');tip.className='foot';
   tip.textContent='copy URL puts the link on your clipboard \u2014 paste in a browser tab to open it';
   d.appendChild(tip);
+  }else{
+  var lk=document.createElement('a');lk.className='full';lk.href=url;lk.target='_blank';lk.rel='noopener';lk.textContent=url;
+  d.appendChild(b);d.appendChild(img);d.appendChild(nm);d.appendChild(lk);
+  }
   root.appendChild(d);
   if(!shots[it.name]){
     fetch(rawUrl(it.name)).then(function(r){if(!r.ok)throw 0;return r.blob();}).then(toDataURL)
@@ -96,10 +106,8 @@ function grid(list,tot){
     var nm=document.createElement('div');nm.className='nm';nm.textContent=it.name;nm.title=it.name;
     var meta=document.createElement('div');meta.className='meta';meta.textContent=fmtDate(it.mtime)+' \u00b7 '+fmtKB(it.size);
     var a=document.createElement('a');a.className='lnk';a.textContent='open \u2197';
-    a.href=pageUrl(it.name);
-    a.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();var w=null;
-      try{w=window.open(pageUrl(it.name),'_blank');}catch(_){}
-      if(!w){detail(it);}});
+    a.href=pageUrl(it.name);a.target='_blank';a.rel='noopener';
+    a.addEventListener('click',function(e){e.stopPropagation();if(ANDROID){e.preventDefault();detail(it);}});
     cap.appendChild(nm);cap.appendChild(meta);cap.appendChild(a);
     card.appendChild(cap);
     card.addEventListener('click',function(){detail(it);});

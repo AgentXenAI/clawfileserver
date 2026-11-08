@@ -108,9 +108,13 @@ reload time.
   matches where the dashboard is actually viewed from.
 - Keep thumbnails as fetch → blob → dataURL. The widget sandbox's CSP restricts
   `img-src`; a plain `<img src="https://…">` may render blank. Verify before changing.
-- Android WebView silently ignores `target="_blank"` and `window.open`; the
-  template falls back to an in-widget detail view with a copy-URL button
-  (clipboard API + execCommand fallback). Keep that pattern.
+- The widget sandbox never grants popups: script-initiated `window.open` fails
+  everywhere, including web. On the web Control UI, a plain
+  `<a target="_blank">` click is forwarded to the host and opens a real new tab
+  — use that for links. Android WebView silently ignores `target="_blank"`, so
+  the template detects Android via UA and switches the detail view to the
+  copy-URL fallback (clipboard API + execCommand). Keep both modes; don't
+  "simplify" the web links into the Android fallback.
 - Previews showing 401 → token type mismatch (number vs string in config) or a
   stale widget; re-check step 2 and re-pin.
 - 403 `outside configured roots` → doubled path prefix (see variant notes) or
