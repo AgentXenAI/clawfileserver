@@ -30,6 +30,14 @@ server._cfsAuth = createClawFileServer({
   auth: { mode: 'basic', user: 'u', password: 'p' },
   maxPreviewBytes: 1024 * 1024, maxEditBytes: 512 * 1024, maxListEntries: 100,
 });
+server._cfsTok = createClawFileServer({
+  roots: [{ path: rwDir, mode: 'rw', label: 'RW' }],
+  auth: { mode: 'basic', user: 'u', password: 'p', token: 'share-token-123' },
+  maxPreviewBytes: 1024 * 1024, maxEditBytes: 512 * 1024, maxListEntries: 100,
+});
+const tokServer = http.createServer((req, res) => {
+  server._cfsTok.handle(req, res, '/cfs');
+});
 
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const base = `http://127.0.0.1:${server.address().port}`;
@@ -105,6 +113,36 @@ ok('basic auth: 200 with creds', r.status === 200);
 r = await fetch(`${abase2}/cfs/`, { headers: { Authorization: 'Basic ' + Buffer.from('u:wrong').toString('base64') } });
 ok('basic auth: 401 wrong pass', r.status === 401);
 
-server.close(); authServer.close();
+// 14. JSON listing
+r = await get(`/cfs${rwDir}/?json=1`);
+{
+  const j = r.status === 200 ? await r.json() : {};
+  ok('json listing 200 + CORS *', r.status === 200 && r.headers.get('access-control-allow-origin') === '*');
+  ok('json listing entries', Array.isArray(j.entries) && j.entries.some((e) => e.name === 'note.md' && e.dir === false && typeof e.size === 'number'));
+  ok('json listing dirs flagged', j.entries.some((e) => e.name === 'sub' && e.dir === true));
+}
+
+// 15. read-only share token
+await new Promise((r2) => tokServer.listen(0, '127.0.0.1', r2));
+const tbase = `http://127.0.0.1:${tokServer.address().port}`;
+r = await fetch(`${tbase}/cfs/`);
+ok('token server: 401 without creds or token', r.status === 401);
+r = await fetch(`${tbase}/cfs/?t=share-token-123`);
+ok('token via ?t= -> 200', r.status === 200);
+r = await fetch(`${tbase}/cfs/?t=wrong-token-value`);
+ok('bad token -> 401', r.status === 401);
+r = await fetch(`${tbase}/cfs/`, { headers: { 'x-cfs-token': 'share-token-123' } });
+ok('token via header -> 200', r.status === 200);
+r = await fetch(`${tbase}/cfs${rwDir}/?json=1&t=share-token-123`);
+{
+  const j = r.status === 200 ? await r.json() : {};
+  ok('token + json listing', r.status === 200 && j.entries?.length > 0);
+}
+r = await fetch(`${tbase}/cfs${rwDir}/note.md?t=share-token-123`, { method: 'PUT', body: 'x' });
+ok('token cannot PUT -> 401', r.status === 401);
+r = await fetch(`${tbase}/cfs/_mkdir?path=${encodeURIComponent(rwDir + '/nope')}&t=share-token-123`, { method: 'POST' });
+ok('token cannot mkdir -> 401', r.status === 401);
+
+server.close(); authServer.close(); tokServer.close();
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\nAll ${n} checks passed.`);
