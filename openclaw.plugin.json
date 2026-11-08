@@ -42,6 +42,10 @@
         },
         "description": "Route-level auth. 'none' relies on Gateway/network protection; 'basic' adds HTTP basic auth (a password is generated and logged once if unset)."
       },
+      "workspace": {
+        "type": "string",
+        "description": "Default root used when 'roots' is empty. Defaults to the OpenClaw workspace directory."
+      },
       "maxPreviewBytes": { "type": "integer", "minimum": 1024, "maximum": 16777216, "default": 1048576 },
       "maxEditBytes": { "type": "integer", "minimum": 1024, "maximum": 8388608, "default": 524288 },
       "maxListEntries": { "type": "integer", "minimum": 10, "maximum": 50000, "default": 5000 },
