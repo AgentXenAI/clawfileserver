@@ -38,10 +38,12 @@ function resolveBase(){
   try{return new URL(o,location.href).origin+(BP?"/"+BP:"");}catch(_){return null;}
 }
 var IMG_RE=/\.(png|jpe?g|webp|gif)$/i;
-// Android WebView: target="_blank" links silently fail and window.open is
-// blocked, so use the copy-URL fallback there. On the web Control UI, plain
-// target="_blank" anchor clicks are forwarded to the host and open a new tab.
-var ANDROID=/\bAndroid\b/i.test(navigator.userAgent);
+// Link-out modes: the OpenClaw Android app runs in a WebView (UA contains
+// "; wv)") where new-tab links silently fail — use the copy-URL fallback there.
+// Real browsers, including mobile Chrome/Safari, let the Control UI host forward
+// target="_blank" clicks to a new tab, so show a normal link. Do NOT match on
+// bare "Android": mobile browsers are web too.
+var ANDROID=/; wv\)/.test(navigator.userAgent)||/OpenClaw/i.test(navigator.userAgent);
 var DIRP=DIR.split('/').map(encodeURIComponent).join('/');
 var root=document.getElementById('xmg');
 var shots={};

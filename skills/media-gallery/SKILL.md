@@ -111,10 +111,12 @@ reload time.
 - The widget sandbox never grants popups: script-initiated `window.open` fails
   everywhere, including web. On the web Control UI, a plain
   `<a target="_blank">` click is forwarded to the host and opens a real new tab
-  — use that for links. Android WebView silently ignores `target="_blank"`, so
-  the template detects Android via UA and switches the detail view to the
-  copy-URL fallback (clipboard API + execCommand). Keep both modes; don't
-  "simplify" the web links into the Android fallback.
+  — use that for links. The OpenClaw Android app's WebView silently ignores
+  `target="_blank"`, so the template detects **WebView only** via the `"; wv)"`
+  UA token (or an `OpenClaw` UA marker) and switches the detail view to the
+  copy-URL fallback (clipboard API + execCommand). Never match bare `Android`:
+  mobile browsers viewing the dashboard are web and must get real links.
+  Keep both modes; don't "simplify" the web links into the Android fallback.
 - Previews showing 401 → token type mismatch (number vs string in config) or a
   stale widget; re-check step 2 and re-pin.
 - 403 `outside configured roots` → doubled path prefix (see variant notes) or
