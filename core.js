@@ -80,31 +80,31 @@ function safeName(n) {
 
 const CSS = `
 :root{color-scheme:dark}
-body{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0d1117;color:#c9d1d9;margin:0;padding:24px;max-width:1100px}
+body{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0B2545;color:#D8E6F3;margin:0;padding:24px;max-width:1100px;accent-color:#FF7A29}
 h1{font-size:16px;font-weight:600;margin:0 0 4px}
-h1 a{color:#e6edf3;text-decoration:none}
-.crumb{color:#8b949e;margin-bottom:16px;font-size:13px;word-break:break-all}
-.crumb a{color:#58a6ff;text-decoration:none}.crumb span{color:#8b949e}
+h1 a{color:#FFC53D;text-decoration:none}
+.crumb{color:#7FA8C9;margin-bottom:16px;font-size:13px;word-break:break-all}
+.crumb a{color:#38BDF8;text-decoration:none}.crumb span{color:#7FA8C9}
 table{border-collapse:collapse;width:100%}
-th{text-align:left;color:#8b949e;font-weight:500;font-size:12px;border-bottom:1px solid #21262d;padding:4px 12px 4px 0}
-td{border-bottom:1px solid #161b22;padding:3px 12px 3px 0;white-space:nowrap}
+th{text-align:left;color:#7FA8C9;font-weight:500;font-size:12px;border-bottom:1px solid #2A4E7C;padding:4px 12px 4px 0}
+td{border-bottom:1px solid #16345A;padding:3px 12px 3px 0;white-space:nowrap}
 td.name{white-space:normal;word-break:break-all}
-a{color:#58a6ff}a.d{color:#7ee787}
-.sz,.mt{color:#8b949e;font-size:13px}
-.thumb{height:38px;min-width:38px;object-fit:cover;border-radius:4px;vertical-align:middle;margin-right:8px;background:#161b22}
-pre{background:#161b22;padding:14px;border-radius:6px;overflow:auto;font-size:13px;max-height:80vh;white-space:pre-wrap;word-break:break-word}
-.bar{margin:0 0 18px;font-size:13px;color:#8b949e}
+a{color:#38BDF8}a:hover{color:#FF7A29}a.d{color:#FFC53D}
+.sz,.mt{color:#7FA8C9;font-size:13px}
+.thumb{height:38px;min-width:38px;object-fit:cover;border-radius:4px;vertical-align:middle;margin-right:8px;background:#123055}
+pre{background:#123055;padding:14px;border-radius:6px;overflow:auto;font-size:13px;max-height:80vh;white-space:pre-wrap;word-break:break-word}
+.bar{margin:0 0 18px;font-size:13px;color:#7FA8C9}
 .bar a{margin-right:14px}
 .img{max-width:100%;border-radius:6px}
-video{width:100%;max-height:80vh;border-radius:6px;background:#000}
+video{width:100%;max-height:80vh;border-radius:6px;background:#071A33}
 audio{width:100%}
-.upbar button,.upbar label{background:#21262d;border:1px solid #30363d;border-radius:6px;padding:4px 10px;cursor:pointer;color:#c9d1d9;margin-right:10px;font:inherit;display:inline-block}
-.upbar button:hover,.upbar label:hover{border-color:#58a6ff}
-#upst{color:#7ee787;font-size:13px}
-.note{color:#8b949e;font-style:italic}
-.badge{border:1px solid #30363d;border-radius:4px;padding:0 6px;font-size:11px;color:#8b949e}
-textarea#ed{width:100%;height:78vh;box-sizing:border-box;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#161b22;color:#c9d1d9;border:1px solid #30363d;border-radius:6px;padding:12px;white-space:pre;resize:vertical;tab-size:2}
-#sv{background:#238636;border:1px solid #2ea043;border-radius:6px;color:#fff;font:inherit;padding:4px 12px;cursor:pointer;margin-right:10px}
+.upbar button,.upbar label{background:#16345A;border:1px solid #2A4E7C;border-radius:6px;padding:4px 10px;cursor:pointer;color:#D8E6F3;margin-right:10px;font:inherit;display:inline-block}
+.upbar button:hover,.upbar label:hover{border-color:#38BDF8}
+#upst{color:#FFC53D;font-size:13px}
+.note{color:#7FA8C9;font-style:italic}
+.badge{border:1px solid #2A4E7C;border-radius:4px;padding:0 6px;font-size:11px;color:#7FA8C9}
+textarea#ed{width:100%;height:78vh;box-sizing:border-box;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#123055;color:#D8E6F3;border:1px solid #2A4E7C;border-radius:6px;padding:12px;white-space:pre;resize:vertical;tab-size:2}
+#sv{background:#FF7A29;border:1px solid #E8651A;border-radius:6px;color:#0B2545;font:inherit;font-weight:600;padding:4px 12px;cursor:pointer;margin-right:10px}
 #st{margin-left:10px}
 `;
 
@@ -219,7 +219,7 @@ addEventListener('dragover',e=>e.preventDefault());
 addEventListener('drop',e=>{e.preventDefault();[...e.dataTransfer.files].forEach(put)});
 </script>` : '';
     const body = `
-<h1><a href="${esc(bp)}/">ClawFileServer</a></h1>
+<h1>🦀 <a href="${esc(bp)}/">ClawFileServer</a></h1>
 ${crumbs(bp, p)}
 ${upUI}
 <table><tr><th>name</th><th>size</th><th>modified</th></tr>
@@ -545,7 +545,7 @@ ${tag}`;
     const left = Math.max(0, Math.round((rec.exp - Date.now()) / 1000));
     const body = `<h1>📥 drop files</h1>
 <div class="bar"><span class="note" id="cd">link expires in ${left}s</span> · <span class="sz">${rec.max ? `${rec.max - rec.n} of ${rec.max} uploads left` : 'unlimited uploads'}</span></div>
-<div id="zone" style="border:2px dashed #30363d;border-radius:10px;padding:48px;text-align:center;color:#8b949e">drag &amp; drop files here — or <label style="color:#58a6ff;cursor:pointer">browse<input id="f" type="file" multiple hidden></label></div>
+<div id="zone" style="border:2px dashed #2A4E7C;border-radius:10px;padding:48px;text-align:center;color:#7FA8C9">drag &amp; drop files here — or <label style="color:#38BDF8;cursor:pointer">browse<input id="f" type="file" multiple hidden></label></div>
 <div id="list" style="margin-top:14px"></div>
 <script>
 const CODE=${JSON.stringify(rec.code)},BP=${JSON.stringify(bp)};
@@ -566,9 +566,9 @@ function up(file){
 }
 function esc(s){return s.replace(/[&<>\"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function fmt(n){return n<1024?n+' B':n<1048576?(n/1024).toFixed(1)+' KiB':(n/1048576).toFixed(1)+' MiB';}
-addEventListener('dragover',(e)=>{e.preventDefault();zone.style.borderColor='#58a6ff';});
-addEventListener('dragleave',()=>{zone.style.borderColor='#30363d';});
-addEventListener('drop',(e)=>{e.preventDefault();zone.style.borderColor='#30363d';[...e.dataTransfer.files].forEach(up);});
+addEventListener('dragover',(e)=>{e.preventDefault();zone.style.borderColor='#FF7A29';});
+addEventListener('dragleave',()=>{zone.style.borderColor='#2A4E7C';});
+addEventListener('drop',(e)=>{e.preventDefault();zone.style.borderColor='#2A4E7C';[...e.dataTransfer.files].forEach(up);});
 f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
 </script>`;
     sendHTML(res, 200, page('drop files', body));
