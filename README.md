@@ -2,7 +2,7 @@
   <img src="assets/icons/cfs-crab-folder-transparent-256.png" alt="ClawFileServer logo — crab climbing out of a folder, ascending a blue arrow" width="160"/>
 </p>
 
-# ClawFileServer
+# ClawFileServer 🦀📂⬆️
 
 A web file browser for your [OpenClaw](https://github.com/openclaw/openclaw) Gateway: browse any configured directory tree, preview images / video / audio / text in the browser, and **edit text files in place** — all mounted on the Gateway's own HTTP port, no extra daemon or port to manage.
 
