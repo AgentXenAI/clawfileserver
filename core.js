@@ -585,6 +585,42 @@ ${tag}`;
     res.end();
   }
 
+  function handleRecent(res, bp, qp) {
+    const hours = Math.min(24 * 30, Math.max(0.01, parseFloat(qp.get('hours') || '24') || 24));
+    const max = Math.min(500, Math.max(1, parseInt(qp.get('max') || '100', 10) || 100));
+    const scanCap = cfg.searchScanLimit || 20000;
+    const cutoff = Date.now() - hours * 3600e3;
+    const single = qp.get('root');
+    const walkRoots = single ? [{ path: path.resolve('/' + String(single).replace(/^\/+/, '')) }] : roots;
+    if (single && !inRoot(walkRoots[0].path)) return err(res, 403, 'root must be under a configured root');
+    const items = [];
+    let scanned = 0, truncated = false;
+    outer: for (const root of walkRoots) {
+      const stack = [[root.path, '']];
+      while (stack.length) {
+        const [dir, rel] = stack.pop();
+        let ents;
+        try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+        for (const e of ents) {
+          if (!cfg.showHidden && e.name.startsWith('.')) continue;
+          if (++scanned > scanCap) { truncated = true; break outer; }
+          const abs = path.join(dir, e.name);
+          let st2;
+          try { st2 = fs.lstatSync(abs); } catch { continue; }
+          if (st2.isSymbolicLink()) continue;
+          const isDir = st2.isDirectory();
+          if (isDir) stack.push([abs, rel ? rel + '/' + e.name : e.name]);
+          if (st2.mtimeMs < cutoff) continue;
+          const relName = rel ? rel + '/' + e.name : e.name;
+          items.push({ path: abs, name: e.name, rel: relName, root: root.path, dir: isDir,
+            size: st2.isFile() ? st2.size : null, mtime: Math.round(st2.mtimeMs) });
+        }
+      }
+    }
+    items.sort((a, b) => b.mtime - a.mtime);
+    jsonOut(res, 200, { hours, cutoff: Math.round(cutoff), scanned, truncated, count: Math.min(items.length, max), items: items.slice(0, max) });
+  }
+
   function handleSearch(res, bp, qp) {
     const q = String(qp.get('q') || '').trim();
     if (!q) return err(res, 400, '?q=<search term or *glob*> required');
@@ -997,6 +1033,7 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
       if (req.method === 'POST' && p === '/_delete') return handleDelete(res, qp);
       if (req.method === 'POST' && p === '/_move') return handleMove(res, qp);
       if ((req.method === 'GET' || req.method === 'HEAD') && p === '/_search') return handleSearch(res, bp, qp);
+      if ((req.method === 'GET' || req.method === 'HEAD') && p === '/_recent') return handleRecent(res, bp, qp);
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         return err(res, 405, 'GET/HEAD/PUT/POST(/_mkdir,/ _delete,/ _move) only');
       }

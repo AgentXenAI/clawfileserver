@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.5
+- New: `GET /_recent?hours=24&max=100` activity feed (mtime walk across all roots, JSON) + bundled `recent-activity` dashboard widget skill (self-refreshing "what changed when" list)
+
 ## 0.4.4
 - Fix: markdown preview rendered empty — a single-escaped \\n in the italic regex became a literal newline in the served script, breaking the whole inline <script>
 - Removed the search box from listings (endpoint stays; UI parked pending proxy-prefix rework)
