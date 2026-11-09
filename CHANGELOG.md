@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.3
+- Fix: share-token browsing broke on first click — links/forms/subresources dropped ?t=; the token is now promoted to a session cookie (cfs_t) and accepted from it
+
 ## 0.4.2
 - Mobile layout: hide modified column under 720px, compact rename/delete buttons, zip badge no longer wraps, names break on word boundaries (no more one-char-per-line)
 

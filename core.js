@@ -658,8 +658,11 @@ ${tag}`;
     if (req.method !== 'GET' && req.method !== 'HEAD') return false;
     const q = qp.get('t');
     const h = req.headers['x-cfs-token'];
+    const ck = (req.headers.cookie || '').split(/;/).map((s) => s.trim()).find((s) => s.startsWith('cfs_t='));
+    const cv = ck ? ck.slice(6) : '';
     return (typeof q === 'string' && q.length > 0 && eqSafe(q, auth.token))
-      || (typeof h === 'string' && h.length > 0 && eqSafe(h, auth.token));
+      || (typeof h === 'string' && h.length > 0 && eqSafe(h, auth.token))
+      || (cv.length > 0 && eqSafe(cv, auth.token));
   }
 
   // ---- expiring share links + drop portals (capability URLs) ----------------
@@ -964,6 +967,11 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
           res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ClawFileServer"', 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
           res.end('ClawFileServer: login required');
           return true;
+        }
+        // Token-link browsing: promote ?t= to a session cookie so links, forms,
+        // and subresources (thumbnails) keep working without rewriting every href.
+        if (qp0.get('t') === auth.token) {
+          res.setHeader('Set-Cookie', `cfs_t=${auth.token}; Path=/; HttpOnly; SameSite=Lax`);
         }
       }
       const url = p + query;
