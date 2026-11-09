@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.2
+- Mobile layout: hide modified column under 720px, compact rename/delete buttons, zip badge no longer wraps, names break on word boundaries (no more one-char-per-line)
+
 ## 0.4.1
 - Fix: zip general-purpose flags had the encryption bit set (0x0809 -> 0x0808); strict readers like Python zipfile refused the archives
 
