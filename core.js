@@ -249,10 +249,7 @@ ${FAVICON_URI ? `<link rel="icon" type="image/png" href="${FAVICON_URI}">` : ''}
 <div class="bar upbar"><button onclick="newFolder()">+ New folder</button>
 <label>⬆ Upload files<input id="upf" type="file" multiple hidden></label>
 <span id="upst">drop files anywhere to upload</span></div>` : '';
-    const searchUI = `<form class="srch" method="GET" action="${esc(bp)}/_search">
-<input name="root" value="${esc(p)}" hidden><input name="html" value="1" hidden>
-<input type="text" name="q" placeholder="search names…"><label style="color:#7FA8C9;font-size:12px"><input type="checkbox" name="content" value="1"> in files</label>
-<button>🔎 search</button></form>`;
+    const searchUI = '';
     const upJS = inWritable(p) ? `<script>
 const DIR=${JSON.stringify(p)};const BASE=${JSON.stringify(bp)};const st=document.getElementById('upst');
 let done=0,total=0;
@@ -379,9 +376,9 @@ function md(s){
  const E=s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
  const L=E.split('\\n');const o=[];let code=false,cb=[],ul=false,ol=false,para=[];
  const inl=t=>t.replace(/\`([^\`]+)\`/g,'<code>$1</code>')
-  .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
-  .replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<i>$2</i>')
-  .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" rel="noopener">$1</a>');
+  .replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>')
+  .replace(/(^|[^*])\\*([^*\\n]+)\\*/g,'$1<i>$2</i>')
+  .replace(/\\[([^\\]]+)\\]\\((https?:[^)\\s]+)\\)/g,'<a href="$2" rel="noopener">$1</a>');
  const closeL=()=>{if(ul){o.push('</ul>');ul=false}if(ol){o.push('</ol>');ol=false}};
  const flushP=()=>{if(para.length){o.push('<p>'+inl(para.join(' '))+'</p>');para=[]}};
  for(const ln of L){
@@ -658,8 +655,11 @@ ${tag}`;
     if (req.method !== 'GET' && req.method !== 'HEAD') return false;
     const q = qp.get('t');
     const h = req.headers['x-cfs-token'];
+    const ck = (req.headers.cookie || '').split(/;/).map((s) => s.trim()).find((s) => s.startsWith('cfs_t='));
+    const cv = ck ? ck.slice(6) : '';
     return (typeof q === 'string' && q.length > 0 && eqSafe(q, auth.token))
-      || (typeof h === 'string' && h.length > 0 && eqSafe(h, auth.token));
+      || (typeof h === 'string' && h.length > 0 && eqSafe(h, auth.token))
+      || (cv.length > 0 && eqSafe(cv, auth.token));
   }
 
   // ---- expiring share links + drop portals (capability URLs) ----------------
@@ -964,6 +964,11 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
           res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="ClawFileServer"', 'Content-Type': 'text/plain', 'Access-Control-Allow-Origin': '*' });
           res.end('ClawFileServer: login required');
           return true;
+        }
+        // Token-link browsing: promote ?t= to a session cookie so links, forms,
+        // and subresources (thumbnails) keep working without rewriting every href.
+        if (qp0.get('t') === auth.token) {
+          res.setHeader('Set-Cookie', `cfs_t=${auth.token}; Path=/; HttpOnly; SameSite=Lax`);
         }
       }
       const url = p + query;

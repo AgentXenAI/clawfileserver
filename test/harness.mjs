@@ -141,6 +141,11 @@ ok('token server: 401 without creds or token', r.status === 401);
 ok('401 carries CORS header', r.headers.get('access-control-allow-origin') === '*');
 r = await fetch(`${tbase}/cfs/?t=share-token-123`);
 ok('token via ?t= -> 200', r.status === 200);
+ok('?t= sets session cookie', (r.headers.get('set-cookie') || '').includes('cfs_t=share-token-123'));
+r = await fetch(`${tbase}/cfs/`, { headers: { cookie: 'cfs_t=share-token-123' } });
+ok('token via cookie -> 200', r.status === 200);
+r = await fetch(`${tbase}/cfs/`, { headers: { cookie: 'cfs_t=wrong-value' } });
+ok('bad cookie -> 401', r.status === 401);
 r = await fetch(`${tbase}/cfs/?t=wrong-token-value`);
 ok('bad token -> 401', r.status === 401);
 r = await fetch(`${tbase}/cfs/`, { headers: { 'x-cfs-token': 'share-token-123' } });
@@ -331,7 +336,7 @@ ok('move missing source -> 404', r.status === 404);
   r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=needle&html=1`);
   ok('search html page', r.status === 200 && (await r.text()).includes('needle.cfg'));
   r = await get(`/cfs${rwDir}/`);
-  ok('listing shows search box', (await r.text()).includes('_search'));
+  ok('listing search box removed (parked feature)', !(await r.text()).includes('class="srch"'));
 }
 
 // 22. markdown preview
@@ -341,6 +346,14 @@ ok('move missing source -> 404', r.status === 404);
   const html = await r.text();
   ok('md page has rendered view + toggle', r.status === 200 && html.includes('id="mdview"') && html.includes('show raw'));
   ok('md page embeds source safely', html.includes('const MD=') && html.split('</scr' + 'ipt>').length === 2);
+  {
+    // the inline md-renderer script must actually parse: a stray escape in the
+    // template literal once turned the served page into a silent empty preview
+    const script = (html.match(/<script>([\s\S]*?)<\/script>/) || [])[1] || '';
+    let parses = false;
+    try { new Function(script); parses = true; } catch { parses = false; }
+    ok('md page inline script parses as valid JS', parses && script.includes('mdview'));
+  }
 }
 
 server.close(); authServer.close(); tokServer.close();
