@@ -92,9 +92,8 @@ The core (`core.js`) is framework-free — `createClawFileServer(config).handle(
 
 MIT
 
-## Mirror topology (for maintainers)
+## Contribution flow
 
-Public: `github.com/AgentXenAI/clawfileserver` — open PRs there.
-Primary source: `git.j87.io/XenAI/clawfileserver` (private). Merged PRs flow back
-automatically via `GitHubMirror/clawfileserver` (hourly). Maintainer clones push
-only to the Forgejo primary; it mirrors to GitHub on commit. Never push to GitHub directly.
+Open PRs here on GitHub — this repo is the only public surface. Merged PRs are
+staged onto per-PR testing branches, validated against the maintainers' dev
+branch, and land on `main` from the private primary. Nothing else is published.
