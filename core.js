@@ -80,7 +80,8 @@ function safeName(n) {
 
 const CSS = `
 :root{color-scheme:dark}
-body{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#0B2545;color:#D8E6F3;margin:0;padding:24px;max-width:1100px;accent-color:#FF7A29}
+body{font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#071A33;color:#D8E6F3;margin:0;padding:24px;max-width:1100px;accent-color:#FF7A29}
+.logo{height:30px;vertical-align:-8px;margin-right:6px}
 h1{font-size:16px;font-weight:600;margin:0 0 4px}
 h1 a{color:#FFC53D;text-decoration:none}
 .crumb{color:#7FA8C9;margin-bottom:16px;font-size:13px;word-break:break-all}
@@ -96,7 +97,7 @@ pre{background:#123055;padding:14px;border-radius:6px;overflow:auto;font-size:13
 .bar{margin:0 0 18px;font-size:13px;color:#7FA8C9}
 .bar a{margin-right:14px}
 .img{max-width:100%;border-radius:6px}
-video{width:100%;max-height:80vh;border-radius:6px;background:#071A33}
+video{width:100%;max-height:80vh;border-radius:6px;background:#04101F}
 audio{width:100%}
 .upbar button,.upbar label{background:#16345A;border:1px solid #2A4E7C;border-radius:6px;padding:4px 10px;cursor:pointer;color:#D8E6F3;margin-right:10px;font:inherit;display:inline-block}
 .upbar button:hover,.upbar label:hover{border-color:#38BDF8}
@@ -107,6 +108,13 @@ textarea#ed{width:100%;height:78vh;box-sizing:border-box;font:13px/1.45 ui-monos
 #sv{background:#FF7A29;border:1px solid #E8651A;border-radius:6px;color:#0B2545;font:inherit;font-weight:600;padding:4px 12px;cursor:pointer;margin-right:10px}
 #st{margin-left:10px}
 `;
+
+const here = path.dirname(new URL(import.meta.url).pathname);
+const iconURI = (f) => {
+  try { return 'data:image/png;base64,' + fs.readFileSync(path.join(here, 'assets', 'icons', f)).toString('base64'); } catch { return ''; }
+};
+const LOGO_URI = iconURI('cfs-crab-folder-transparent-64.png');
+const FAVICON_URI = iconURI('cfs-crab-folder-transparent-32.png');
 
 export function createClawFileServer(cfg) {
   const roots = cfg.roots.map((r) => ({
@@ -126,6 +134,7 @@ export function createClawFileServer(cfg) {
 
   const page = (title, body) => `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+${FAVICON_URI ? `<link rel="icon" type="image/png" href="${FAVICON_URI}">` : ''}
 <title>${esc(title)}</title><style>${CSS}</style></head><body>${body}</body></html>`;
 
   function sendHTML(res, code, html) {
@@ -219,7 +228,7 @@ addEventListener('dragover',e=>e.preventDefault());
 addEventListener('drop',e=>{e.preventDefault();[...e.dataTransfer.files].forEach(put)});
 </script>` : '';
     const body = `
-<h1>🦀 <a href="${esc(bp)}/">ClawFileServer</a></h1>
+<h1>${LOGO_URI ? `<img class="logo" src="${LOGO_URI}" alt="">` : '🦀 '}<a href="${esc(bp)}/">ClawFileServer</a></h1>
 ${crumbs(bp, p)}
 ${upUI}
 <table><tr><th>name</th><th>size</th><th>modified</th></tr>
