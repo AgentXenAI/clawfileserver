@@ -2,7 +2,7 @@
   "id": "clawfileserver",
   "name": "ClawFileServer",
   "description": "Browse, preview, and edit files over HTTP on the Gateway port — directory listings, media previews, and a conflict-safe text editor.",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "categories": ["documents-files"],
   "skills": ["skills"],
   "activation": {

@@ -618,7 +618,7 @@ ${tag}`;
       }
     }
     items.sort((a, b) => b.mtime - a.mtime);
-    jsonOut(res, 200, { hours, cutoff: Math.round(cutoff), scanned, truncated, count: Math.min(items.length, max), items: items.slice(0, max) });
+    jsonOut(res, 200, { hours, now: Date.now(), cutoff: Math.round(cutoff), scanned, truncated, count: Math.min(items.length, max), items: items.slice(0, max) });
   }
 
   function handleSearch(res, bp, qp) {

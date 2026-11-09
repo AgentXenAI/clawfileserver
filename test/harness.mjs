@@ -354,6 +354,7 @@ ok('move missing source -> 404', r.status === 404);
     const names = j.items.map((i) => i.name);
     ok('recent: fresh file listed', names.includes('recent-new.txt'));
     ok('recent: stale file excluded', !names.includes('recent-old.txt'));
+    ok('recent: now field present', typeof j.now === 'number');
     ok('recent: sorted newest first', j.items.every((it, i, a) => i === 0 || a[i - 1].mtime >= it.mtime));
   }
   r = await get(`/cfs/_recent?hours=96`);

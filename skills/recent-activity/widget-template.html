@@ -48,22 +48,22 @@
   const TOKEN = "__TOKEN__";
   let BP = "__BASEPATH__";
   if (BASE === "auto") {
-    try {
-      const host = window.parent && window.parent.window && window.parent.window.openclaw && window.parent.window.openclaw.host;
-      const base = host && host.controlUiBaseUrl;
+    let host = null;
+    for (let i = 0; i < 20 && !host; i++) {
+      try { host = window.openclaw && window.openclaw.host; } catch (e) {}
+      if (!host) { try { host = window.parent && window.parent.openclaw && window.parent.openclaw.host; } catch (e) {} }
+      if (!host) await new Promise(r => setTimeout(r, 250));
+    }
+    const base = host && (host.controlUiBaseUrl || host.orchestrationBaseUrl);
       if (typeof base === "string" && /^https?:\/\//.test(base)) {
-        const u = new URL(base);
-        BASE = u.origin;
-        const m = u.pathname.match(/^(.*?)\/api\/control\/ui\/?$/);
-        if (m && m[1]) BP = m[1].replace(/^\//, "") + "/" + BP;
+      const u = new URL(base);
+      BASE = u.origin;
+      const m = u.pathname.match(/^(.*?)\/api\/control\/ui\/?$/);
+      if (m && m[1]) BP = m[1].replace(/^\//, "") + "/" + BP;
       } else {
         document.getElementById("feed").innerHTML = '<div class="err">Could not resolve gateway origin (openclaw.host.controlUiBaseUrl unavailable).</div>';
         return;
       }
-    } catch (e) {
-      document.getElementById("feed").innerHTML = '<div class="err">Could not resolve gateway origin: ' + String(e && e.message || e) + '</div>';
-      return;
-    }
   }
   const url = (p) => BASE + "/" + BP + "/" + p + (TOKEN ? (TOKEN.startsWith("basic:") ? "?" : (p.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(TOKEN)) : "");
   const $ = (id) => document.getElementById(id);
