@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.4
+- Fix: markdown preview rendered empty — a single-escaped \\n in the italic regex became a literal newline in the served script, breaking the whole inline <script>
+- Removed the search box from listings (endpoint stays; UI parked pending proxy-prefix rework)
+
 ## 0.4.3
 - Fix: share-token browsing broke on first click — links/forms/subresources dropped ?t=; the token is now promoted to a session cookie (cfs_t) and accepted from it
 
