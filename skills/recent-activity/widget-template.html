@@ -47,23 +47,20 @@
   let BASE = "__BASE__";
   const TOKEN = "__TOKEN__";
   let BP = "__BASEPATH__";
-  if (BASE === "auto") {
+  // Lazy resolution: controlUiBaseUrl can stay null until the dashboard finishes
+  // initializing, so try on every refresh instead of giving up at load (the
+  // gallery works for the same reason). Returns true once BASE is concrete.
+  function tryResolve() {
+    if (BASE !== "auto") return true;
     let host = null;
-    for (let i = 0; i < 20 && !host; i++) {
-      try { host = window.openclaw && window.openclaw.host; } catch (e) {}
-      if (!host) { try { host = window.parent && window.parent.openclaw && window.parent.openclaw.host; } catch (e) {} }
-      if (!host) await new Promise(r => setTimeout(r, 250));
-    }
+    try { host = window.openclaw && window.openclaw.host; } catch (e) {}
     const base = host && (host.controlUiBaseUrl || host.orchestrationBaseUrl);
-      if (typeof base === "string" && /^https?:\/\//.test(base)) {
-      const u = new URL(base);
-      BASE = u.origin;
-      const m = u.pathname.match(/^(.*?)\/api\/control\/ui\/?$/);
-      if (m && m[1]) BP = m[1].replace(/^\//, "") + "/" + BP;
-      } else {
-        document.getElementById("feed").innerHTML = '<div class="err">Could not resolve gateway origin (openclaw.host.controlUiBaseUrl unavailable).</div>';
-        return;
-      }
+    if (typeof base !== "string" || !/^https?:\/\//.test(base)) return false;
+    const u = new URL(base);
+    BASE = u.origin;
+    const m = u.pathname.match(/^(.*?)\/api\/control\/ui\/?$/);
+    if (m && m[1]) BP = m[1].replace(/^\//, "") + "/" + BP;
+    return true;
   }
   const url = (p) => BASE + "/" + BP + "/" + p + (TOKEN ? (TOKEN.startsWith("basic:") ? "?" : (p.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(TOKEN)) : "");
   const $ = (id) => document.getElementById(id);
@@ -92,6 +89,15 @@
     const hours = $("hours").value;
     const root = $("root").value;
     $("meta").textContent = "loading…";
+    if (!tryResolve()) {
+      $("meta").textContent = "waiting…";
+      $("feed").innerHTML = '<div class="empty">Waiting for dashboard to finish initializing…</div>';
+      if (!window.__raRetryPending) {
+        window.__raRetryPending = true;
+        setTimeout(() => { window.__raRetryPending = false; refresh(); }, 1500);
+      }
+      return;
+    }
     try {
       const r = await fetch(url("_recent?hours=" + hours + "&max=200" + (root ? "&root=" + encodeURIComponent(root) : "")));
       if (!r.ok) throw new Error("HTTP " + r.status);
