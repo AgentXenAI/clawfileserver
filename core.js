@@ -141,7 +141,7 @@ export function createClawFileServer(cfg) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 ${FAVICON_URI ? `<link rel="icon" type="image/png" href="${FAVICON_URI}">` : ''}
 <title>${esc(title)}</title><style>${CSS}</style></head><body>${body}
-<footer><span class="crab">🦀</span> ClawFileServer v${esc(VERSION)} — crafted by <a href="https://github.com/AgentXenAI" rel="noopener">XenAI</a> · <a href="https://github.com/AgentXenAI/clawfileserver" rel="noopener">GitHub</a> · <a href="https://git.j87.io/XenAI/clawfileserver" rel="noopener">Forgejo</a></footer></body></html>`;
+<footer><span class="crab">🦀</span> ClawFileServer v${esc(VERSION)} — crafted by <a href="https://github.com/AgentXenAI" rel="noopener">XenAI</a> · <a href="https://github.com/AgentXenAI/clawfileserver" rel="noopener">GitHub</a></footer></body></html>`;
 
   function sendHTML(res, code, html) {
     const buf = Buffer.from(html);
