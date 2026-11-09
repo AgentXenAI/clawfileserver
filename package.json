@@ -3,7 +3,7 @@
   "version": "0.4.5",
   "description": "OpenClaw plugin: browse, preview, and edit files over HTTP on the Gateway port, with a built-in text editor and conflict-safe saves",
   "type": "module",
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/AgentXenAI/clawfileserver.git"
