@@ -107,6 +107,9 @@ audio{width:100%}
 textarea#ed{width:100%;height:78vh;box-sizing:border-box;font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:#123055;color:#D8E6F3;border:1px solid #2A4E7C;border-radius:6px;padding:12px;white-space:pre;resize:vertical;tab-size:2}
 #sv{background:#FF7A29;border:1px solid #E8651A;border-radius:6px;color:#0B2545;font:inherit;font-weight:600;padding:4px 12px;cursor:pointer;margin-right:10px}
 #st{margin-left:10px}
+footer{margin-top:28px;padding-top:12px;border-top:1px solid #2A4E7C;font-size:12px;color:#7FA8C9}
+footer a{color:#38BDF8;text-decoration:none}footer a:hover{color:#FF7A29}
+footer .crab{margin-right:4px}
 `;
 
 const here = path.dirname(new URL(import.meta.url).pathname);
@@ -115,6 +118,8 @@ const iconURI = (f) => {
 };
 const LOGO_URI = iconURI('cfs-crab-folder-transparent-64.png');
 const FAVICON_URI = iconURI('cfs-crab-folder-transparent-32.png');
+let VERSION = '0.3.0';
+try { VERSION = JSON.parse(fs.readFileSync(path.join(here, 'package.json'), 'utf8')).version || VERSION; } catch {}
 
 export function createClawFileServer(cfg) {
   const roots = cfg.roots.map((r) => ({
@@ -135,7 +140,8 @@ export function createClawFileServer(cfg) {
   const page = (title, body) => `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 ${FAVICON_URI ? `<link rel="icon" type="image/png" href="${FAVICON_URI}">` : ''}
-<title>${esc(title)}</title><style>${CSS}</style></head><body>${body}</body></html>`;
+<title>${esc(title)}</title><style>${CSS}</style></head><body>${body}
+<footer><span class="crab">🦀</span> ClawFileServer v${esc(VERSION)} — crafted by <a href="https://github.com/AgentXenAI" rel="noopener">XenAI</a> · <a href="https://github.com/AgentXenAI/clawfileserver" rel="noopener">GitHub</a> · <a href="https://git.j87.io/XenAI/clawfileserver" rel="noopener">Forgejo</a></footer></body></html>`;
 
   function sendHTML(res, code, html) {
     const buf = Buffer.from(html);
