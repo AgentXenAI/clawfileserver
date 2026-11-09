@@ -5,6 +5,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import zlib from 'node:zlib';
+import { finished } from 'node:stream/promises';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
@@ -110,6 +112,21 @@ textarea#ed{width:100%;height:78vh;box-sizing:border-box;font:13px/1.45 ui-monos
 footer{margin-top:28px;padding-top:12px;border-top:1px solid #2A4E7C;font-size:12px;color:#7FA8C9}
 footer a{color:#38BDF8;text-decoration:none}footer a:hover{color:#FF7A29}
 footer .crab{margin-right:4px}
+button.mini{background:none;border:1px solid #2A4E7C;border-radius:4px;color:#7FA8C9;font:inherit;font-size:12px;padding:0 6px;cursor:pointer;margin-left:6px}
+button.mini:hover{border-color:#FF7A29;color:#FF7A29}
+td.act{white-space:nowrap}
+form.srch{display:inline-flex;gap:6px;align-items:center;margin-top:10px}
+form.srch input[type=text]{background:#123055;border:1px solid #2A4E7C;border-radius:6px;color:#D8E6F3;padding:3px 8px;font:inherit}
+form.srch button{background:#16345A;border:1px solid #2A4E7C;border-radius:6px;color:#D8E6F3;padding:3px 10px;cursor:pointer;font:inherit}
+form.srch button:hover{border-color:#38BDF8}
+.mdv{background:#123055;border-radius:6px;padding:6px 20px;max-height:80vh;overflow:auto}
+.mdv h1,.mdv h2,.mdv h3,.mdv h4,.mdv h5,.mdv h6{color:#FFC53D}
+.mdv a{color:#38BDF8}.mdv a:hover{color:#FF7A29}
+.mdv code{background:#0B2545;border-radius:3px;padding:1px 4px}
+.mdv pre{background:#0B2545}
+.mdv blockquote{border-left:3px solid #FF7A29;margin:8px 0;padding:2px 12px;color:#7FA8C9}
+.zip{color:#7FA8C9;font-size:12px;border:1px solid #2A4E7C;border-radius:4px;padding:0 6px;text-decoration:none;margin-left:8px}
+.zip:hover{border-color:#38BDF8;color:#38BDF8}
 `;
 
 const here = path.dirname(new URL(import.meta.url).pathname);
@@ -212,13 +229,19 @@ ${FAVICON_URI ? `<link rel="icon" type="image/png" href="${FAVICON_URI}">` : ''}
       const mt = st ? fmtTime(st.mtimeMs) : '?';
       const thumb = !isDir && IMG.has(path.extname(e.name).toLowerCase())
         ? `<img class="thumb" loading="lazy" src="${esc(href)}?raw=1" alt="">` : '';
-      rows.push(`<tr><td class="name">${thumb}<a class="${isDir ? '' : 'd'}" href="${esc(href)}">${esc(e.name)}</a></td>` +
-        `<td class="sz">${size}</td><td class="mt">${mt}</td></tr>`);
+      const zipLink = isDir ? `<a class="zip" href="${esc(href)}?zip=1" title="download folder as zip">zip</a>` : '';
+      const acts = inWritable(p) ? `<td class="act"><button class="mini" data-ren="${esc(e.name)}" title="rename / move">rename</button><button class="mini" data-del="${esc(e.name)}" data-dir="${isDir ? 1 : 0}" title="delete permanently">delete</button></td>` : '<td></td>';
+      rows.push(`<tr><td class="name">${thumb}<a class="${isDir ? '' : 'd'}" href="${esc(href)}">${esc(e.name)}</a>${zipLink}</td>` +
+        `<td class="sz">${size}</td><td class="mt">${mt}</td>${acts}</tr>`);
     }
     const upUI = inWritable(p) ? `
 <div class="bar upbar"><button onclick="newFolder()">+ New folder</button>
 <label>⬆ Upload files<input id="upf" type="file" multiple hidden></label>
 <span id="upst">drop files anywhere to upload</span></div>` : '';
+    const searchUI = `<form class="srch" method="GET" action="${esc(bp)}/_search">
+<input name="root" value="${esc(p)}" hidden><input name="html" value="1" hidden>
+<input type="text" name="q" placeholder="search names…"><label style="color:#7FA8C9;font-size:12px"><input type="checkbox" name="content" value="1"> in files</label>
+<button>🔎 search</button></form>`;
     const upJS = inWritable(p) ? `<script>
 const DIR=${JSON.stringify(p)};const BASE=${JSON.stringify(bp)};const st=document.getElementById('upst');
 let done=0,total=0;
@@ -232,15 +255,27 @@ async function newFolder(){const n=prompt('Folder name:');if(!n)return;
 document.getElementById('upf').addEventListener('change',e=>{[...e.target.files].forEach(put)});
 addEventListener('dragover',e=>e.preventDefault());
 addEventListener('drop',e=>{e.preventDefault();[...e.dataTransfer.files].forEach(put)});
+document.addEventListener('click',async(ev)=>{
+ const rb=ev.target.closest&&ev.target.closest('[data-ren]'),db=ev.target.closest&&ev.target.closest('[data-del]');
+ if(rb){ev.preventDefault();const n=rb.getAttribute('data-ren');const nn=prompt('New name:',n);
+  if(!nn||nn===n)return;
+  try{const r=await fetch(BASE+'/_move?from='+encodeURIComponent(DIR+'/'+n)+'&to='+encodeURIComponent(DIR+'/'+nn),{method:'POST'});
+   st.textContent=r.ok?'\u2713 renamed':'\u2717 rename refused';if(r.ok)setTimeout(()=>location.reload(),400);}catch{st.textContent='\u2717 failed';}}
+ if(db){ev.preventDefault();const n=db.getAttribute('data-del');
+  if(!confirm('Delete '+n+'?'+(db.getAttribute('data-dir')==='1'?' Folder contents too — ':' ')+'this cannot be undone.'))return;
+  try{const r=await fetch(BASE+'/_delete?path='+encodeURIComponent(DIR+'/'+n),{method:'POST'});
+   st.textContent=r.ok?'\u2713 deleted':'\u2717 delete refused';if(r.ok)setTimeout(()=>location.reload(),400);}catch{st.textContent='\u2717 failed';}}
+});
 </script>` : '';
     const body = `
 <h1>${LOGO_URI ? `<img class="logo" src="${LOGO_URI}" alt="">` : '🦀 '}<a href="${esc(bp)}/">ClawFileServer</a></h1>
 ${crumbs(bp, p)}
 ${upUI}
-<table><tr><th>name</th><th>size</th><th>modified</th></tr>
-${rootFor(p) && p !== rootFor(p).path ? `<tr><td class="name"><a href="${esc(encPath(bp, path.dirname(p)))}/">..</a></td><td></td><td></td></tr>` : ''}
+<table><tr><th>name</th><th>size</th><th>modified</th><th></th></tr>
+${rootFor(p) && p !== rootFor(p).path ? `<tr><td class="name"><a href="${esc(encPath(bp, path.dirname(p)))}/">..</a></td><td></td><td></td><td></td></tr>` : ''}
 ${rows.join('\n')}
 </table>
+${searchUI}
 ${truncated ? '<p class="note">listing truncated at ' + maxList + ' entries</p>' : ''}
 ${upJS}`;
     sendHTML(res, 200, page(p + '/', body));
@@ -322,6 +357,43 @@ addEventListener('keydown',(e)=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preve
       const editable = inWritable(p) && st.size <= maxEdit;
       if (editable && /[?&]edit=1/.test(url)) return editor(res, bp, p, st, text);
       const editLink = editable ? `<a href="${esc(encPath(bp, p))}?edit=1">edit</a> ` : '';
+      if (ext === '.md') {
+        const body = `<h1>${esc(fname)}</h1>${crumbs(bp, p)}
+<div class="bar">${editLink}<a href="${esc(encPath(bp, p))}?dl=1">download</a> <a href="#" id="tgl">show raw</a> <span class="sz">${fmtSize(st.size)} \u00b7 ${fmtTime(st.mtimeMs)}</span></div>
+<div id="mdview" class="mdv"></div>
+<pre id="mdraw" hidden>${esc(text)}</pre>
+<script>
+const MD=${JSON.stringify(text).replace(/</g, '\\u003c')};
+function md(s){
+ const E=s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+ const L=E.split('\\n');const o=[];let code=false,cb=[],ul=false,ol=false,para=[];
+ const inl=t=>t.replace(/\`([^\`]+)\`/g,'<code>$1</code>')
+  .replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>')
+  .replace(/(^|[^*])\*([^*\n]+)\*/g,'$1<i>$2</i>')
+  .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,'<a href="$2" rel="noopener">$1</a>');
+ const closeL=()=>{if(ul){o.push('</ul>');ul=false}if(ol){o.push('</ol>');ol=false}};
+ const flushP=()=>{if(para.length){o.push('<p>'+inl(para.join(' '))+'</p>');para=[]}};
+ for(const ln of L){
+  if(/^\`\`\`/.test(ln)){flushP();closeL();if(!code){code=true;cb=[]}else{o.push('<pre><code>'+cb.join('\\n')+'</code></pre>');code=false}continue}
+  if(code){cb.push(ln);continue}
+  let m;
+  if(m=/^(#{1,6})\\s+(.*)$/.exec(ln)){flushP();closeL();const h=m[1].length;o.push('<h'+h+'>'+inl(m[2])+'</h'+h+'>');continue}
+  if(/^(-{3,}|\\*{3,})\\s*$/.test(ln)){flushP();closeL();o.push('<hr>');continue}
+  if(m=/^&gt;\\s?(.*)$/.exec(ln)){flushP();closeL();o.push('<blockquote>'+inl(m[1])+'</blockquote>');continue}
+  if(m=/^[-*]\\s+(.*)$/.exec(ln)){flushP();if(ol){o.push('</ol>');ol=false}if(!ul){o.push('<ul>');ul=true}o.push('<li>'+inl(m[1])+'</li>');continue}
+  if(m=/^\\d+\\.\\s+(.*)$/.exec(ln)){flushP();if(ul){o.push('</ul>');ul=false}if(!ol){o.push('<ol>');ol=true}o.push('<li>'+inl(m[1])+'</li>');continue}
+  if(!ln.trim()){flushP();closeL();continue}
+  para.push(ln);
+ }
+ if(code)o.push('<pre><code>'+cb.join('\\n')+'</code></pre>');
+ flushP();closeL();
+ return o.join('\\n');
+}
+document.getElementById('mdview').innerHTML=md(MD);
+document.getElementById('tgl').addEventListener('click',(e)=>{e.preventDefault();const v=document.getElementById('mdview'),r=document.getElementById('mdraw');const raw=!r.hidden;r.hidden=raw;v.hidden=raw;e.target.textContent=raw?'show raw':'show rendered';});
+</script>`;
+        return sendHTML(res, 200, page(fname, body));
+      }
       const body = `<h1>${esc(fname)}</h1>${crumbs(bp, p)}
 <div class="bar">${editLink}<a href="${esc(encPath(bp, p))}?dl=1">download</a> <span class="sz">${fmtSize(st.size)} \u00b7 ${fmtTime(st.mtimeMs)}</span></div>
 <pre>${esc(text)}</pre>`;
@@ -384,6 +456,178 @@ ${tag}`;
     log.info?.(`clawfileserver mkdir ${rp}`);
     res.writeHead(201, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, path: rp }));
+  }
+
+  function handleDelete(res, qp) {
+    const target = qp.get('path');
+    if (!target) return err(res, 400, '?path=<absolute path> required');
+    const rp = path.resolve('/' + String(target).replace(/^\/+/, ''));
+    const root = rootFor(rp);
+    if (!root) return err(res, 403, 'deletion is limited to configured roots');
+    if (root.mode !== 'rw') return err(res, 403, 'deletion is limited to read-write roots');
+    if (rp === root.path) return err(res, 403, 'refusing to delete a root itself');
+    let st;
+    try { st = fs.lstatSync(rp); } catch (e) { return err(res, 404, `not found: ${e.code}`); }
+    try {
+      if (st.isDirectory()) fs.rmSync(rp, { recursive: true });
+      else fs.unlinkSync(rp);
+    } catch (e) { return err(res, 500, `delete failed: ${e.code}`); }
+    log.info?.(`clawfileserver deleted ${rp} (${st.isDirectory() ? 'dir' : 'file'})`);
+    jsonOut(res, 201, { ok: true, path: rp, kind: st.isDirectory() ? 'dir' : 'file' });
+  }
+
+  function handleMove(res, qp) {
+    let from, to;
+    try {
+      from = path.resolve('/' + String(qp.get('from') || '').replace(/^\/+/, ''));
+      to = path.resolve('/' + String(qp.get('to') || '').replace(/^\/+/, ''));
+    } catch { return err(res, 400, 'bad paths'); }
+    if (!qp.get('from') || !qp.get('to')) return err(res, 400, '?from=<abs>&to=<abs> required');
+    const rf = rootFor(from), rt = rootFor(to);
+    if (!rf || !rt) return err(res, 403, 'both paths must be under configured roots');
+    if (rf.mode !== 'rw' || rt.mode !== 'rw') return err(res, 403, 'move is limited to read-write roots');
+    if (from === rf.path) return err(res, 403, 'refusing to move a root itself');
+    if (to === from + '/') return err(res, 400, 'source and destination are the same');
+    let st;
+    try { st = fs.lstatSync(from); } catch (e) { return err(res, 404, `source not found: ${e.code}`); }
+    try { fs.lstatSync(to); return err(res, 409, 'destination already exists'); } catch (e) { if (e.code !== 'ENOENT') return err(res, 500, `stat failed: ${e.code}`); }
+    try { fs.renameSync(from, to); }
+    catch (e) { return err(res, 500, `move failed: ${e.code}`); }
+    log.info?.(`clawfileserver moved ${from} -> ${to}`);
+    jsonOut(res, 201, { ok: true, from, to, kind: st.isDirectory() ? 'dir' : 'file' });
+  }
+
+  // ---- folder zip (streamed, data-descriptor entries: no buffering, no seek) --
+  function dosDT(d) {
+    return {
+      t: ((d.getHours() << 11) | (d.getMinutes() << 5) | (d.getSeconds() >> 1)) & 0xffff,
+      dt: (((d.getFullYear() - 1980) << 9) | ((d.getMonth() + 1) << 5) | d.getDate()) & 0xffff,
+    };
+  }
+  function zipWalk(dir, base, out, limit) {
+    let ents;
+    try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return false; }
+    for (const e of ents) {
+      if (out.length >= limit) return true;
+      if (!cfg.showHidden && e.name.startsWith('.')) continue;
+      const abs = path.join(dir, e.name);
+      let st;
+      try { st = fs.lstatSync(abs); } catch { continue; }
+      if (st.isSymbolicLink()) continue;
+      const rel = base ? base + '/' + e.name : e.name;
+      if (st.isDirectory()) { if (zipWalk(abs, rel, out, limit)) return true; }
+      else if (st.isFile()) out.push({ abs, rel, mtime: st.mtimeMs });
+    }
+    return false;
+  }
+  async function sendZip(req, res, dirPath) {
+    const files = [];
+    let truncated = false;
+    try { truncated = zipWalk(dirPath, '', files, cfg.maxZipEntries || 2000); }
+    catch (e) { return err(res, 500, `zip failed: ${e.code}`); }
+    const baseName = path.basename(dirPath) || 'files';
+    res.writeHead(200, {
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${baseName.replace(/"/g, '')}.zip"`,
+      'Access-Control-Allow-Origin': '*',
+      'X-Content-Type-Options': 'nosniff',
+    });
+    if (req.method === 'HEAD') return res.end();
+    let offset = 0;
+    const w = async (buf) => { offset += buf.length; if (!res.write(buf)) await new Promise((r) => res.once('drain', r)); };
+    const central = [];
+    for (const f of files) {
+      const nameBuf = Buffer.from(f.rel, 'utf8');
+      const { t, dt } = dosDT(new Date(f.mtime));
+      const localOff = offset;
+      const lh = Buffer.alloc(30);
+      lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(20, 4); lh.writeUInt16LE(0x0809, 6);
+      lh.writeUInt16LE(8, 8); lh.writeUInt16LE(t, 10); lh.writeUInt16LE(dt, 12);
+      lh.writeUInt16LE(nameBuf.length, 26);
+      await w(lh); await w(nameBuf);
+      let crc = 0, csize = 0, usize = 0;
+      try {
+        const src = fs.createReadStream(f.abs);
+        const gz = zlib.createDeflateRaw();
+        src.on('data', (d) => { usize = (usize + d.length) % 0x100000000; crc = zlib.crc32(d, crc) >>> 0; });
+        src.on('error', () => { res.destroy(); });
+        src.pipe(gz);
+        for await (const chunk of gz) { csize += chunk.length; if (!res.write(chunk)) await new Promise((r) => res.once('drain', r)); offset += chunk.length; }
+        await finished(src);
+      } catch { return res.destroy(); }
+      const dd = Buffer.alloc(16);
+      dd.writeUInt32LE(0x08074b50, 0); dd.writeUInt32LE(crc, 4);
+      dd.writeUInt32LE(csize >>> 0, 8); dd.writeUInt32LE(usize >>> 0, 12);
+      await w(dd);
+      const ch = Buffer.alloc(46);
+      ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(20, 4); ch.writeUInt16LE(20, 6);
+      ch.writeUInt16LE(0x0809, 8); ch.writeUInt16LE(8, 10); ch.writeUInt16LE(t, 12); ch.writeUInt16LE(dt, 14);
+      ch.writeUInt32LE(crc, 16); ch.writeUInt32LE(csize >>> 0, 20); ch.writeUInt32LE(usize >>> 0, 24);
+      ch.writeUInt16LE(nameBuf.length, 28); ch.writeUInt32LE(localOff, 42);
+      central.push(ch, nameBuf);
+    }
+    const cdStart = offset;
+    for (const b of central) await w(b);
+    const eocd = Buffer.alloc(22);
+    eocd.writeUInt32LE(0x06054b50, 0);
+    eocd.writeUInt16LE(files.length, 8); eocd.writeUInt16LE(files.length, 10);
+    eocd.writeUInt32LE(offset - cdStart, 12); eocd.writeUInt32LE(cdStart, 16);
+    await w(eocd);
+    log.info?.(`clawfileserver zip ${dirPath} (${files.length} files${truncated ? ', truncated' : ''})`);
+    res.end();
+  }
+
+  function handleSearch(res, bp, qp) {
+    const q = String(qp.get('q') || '').trim();
+    if (!q) return err(res, 400, '?q=<search term or *glob*> required');
+    const rp = path.resolve('/' + String(qp.get('root') || '/').replace(/^\/+/, ''));
+    if (!inRoot(rp)) return err(res, 403, 'search root must be under a configured root');
+    try { if (!fs.statSync(rp).isDirectory()) throw new Error('notdir'); }
+    catch { return err(res, 404, 'search root is not a directory'); }
+    const wantContent = qp.get('content') === '1';
+    const max = Math.min(1000, Math.max(1, parseInt(qp.get('max') || '200', 10) || 200));
+    const scanCap = cfg.searchScanLimit || 20000;
+    const glob = /[*?]/.test(q);
+    const rx = glob ? new RegExp('^' + q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i') : null;
+    const ql = q.toLowerCase();
+    const nameHit = (n) => (rx ? rx.test(n) : n.toLowerCase().includes(ql));
+    const matches = [];
+    let scanned = 0, truncated = false;
+    const stack = [[rp, '']];
+    outer: while (stack.length) {
+      const [dir, rel] = stack.pop();
+      let ents;
+      try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+      for (const e of ents) {
+        if (!cfg.showHidden && e.name.startsWith('.')) continue;
+        if (++scanned > scanCap) { truncated = true; break outer; }
+        const abs = path.join(dir, e.name);
+        let st2;
+        try { st2 = fs.lstatSync(abs); } catch { continue; }
+        if (st2.isSymbolicLink()) continue;
+        const relName = rel ? rel + '/' + e.name : e.name;
+        const isDir = st2.isDirectory();
+        if (isDir) stack.push([abs, relName]);
+        let hit = nameHit(e.name) ? 'name' : null;
+        if (!hit && wantContent && !isDir && TEXTY.has(path.extname(e.name).toLowerCase()) && st2.size <= 512 * 1024) {
+          try { if (fs.readFileSync(abs, 'utf8').toLowerCase().includes(ql)) hit = 'content'; } catch { /* unreadable */ }
+        }
+        if (hit) {
+          matches.push({ path: abs, name: e.name, rel: relName, dir: isDir, size: st2.isFile() ? st2.size : null, mtime: Math.round(st2.mtimeMs), match: hit });
+          if (matches.length >= max) { truncated = true; break outer; }
+        }
+      }
+    }
+    matches.sort((a, b) => a.rel.localeCompare(b.rel, undefined, { numeric: true }));
+    if (qp.get('html') === '1') {
+      const rows = matches.map((m) => `<tr><td class="name">${m.dir ? '📁' : '📄'} <a class="${m.dir ? '' : 'd'}" href="${esc(encPath(bp, m.path))}${m.dir ? '/' : ''}">${esc(m.rel)}</a></td>` +
+        `<td class="sz">${m.size != null ? fmtSize(m.size) : '-'}</td><td><span class="badge">${m.match}</span></td></tr>`).join('\n');
+      const body = `<h1>🔎 ${esc(q)}</h1>
+<div class="bar"><span class="note">${matches.length} match(es) under ${esc(rp)} \u00b7 ${scanned} scanned${truncated ? ' (truncated)' : ''}</span> \u00b7 <a href="${esc(encPath(bp, rp))}/">back</a></div>
+<table><tr><th>name</th><th>size</th><th>match</th></tr>${rows || '<tr><td class="note" colspan="3">no matches</td></tr>'}</table>`;
+      return sendHTML(res, 200, page(`search: ${q}`, body));
+    }
+    jsonOut(res, 200, { root: rp, q, content: wantContent, scanned, truncated, matches });
   }
 
   function basicAuthed(req) {
@@ -734,8 +978,11 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
         return handlePut(req, res, rp);
       }
       if (req.method === 'POST' && p === '/_mkdir') return handleMkdir(req, res, url);
+      if (req.method === 'POST' && p === '/_delete') return handleDelete(res, qp);
+      if (req.method === 'POST' && p === '/_move') return handleMove(res, qp);
+      if ((req.method === 'GET' || req.method === 'HEAD') && p === '/_search') return handleSearch(res, bp, qp);
       if (req.method !== 'GET' && req.method !== 'HEAD') {
-        return err(res, 405, 'GET/HEAD/PUT/POST(/_mkdir) only');
+        return err(res, 405, 'GET/HEAD/PUT/POST(/_mkdir,/ _delete,/ _move) only');
       }
 
       const rp = path.resolve(p);
@@ -750,6 +997,7 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
       }
       if (st.isDirectory()) {
         if (/[?&]json=1/.test(query)) return jsonListing(res, rp.replace(/\/+$/, '') || '/');
+        if (/[?&]zip=1/.test(query)) return sendZip(req, res, rp.replace(/\/+$/, '') || '/');
         return listing(res, bp, rp.replace(/\/+$/, '') || '/');
       }
       return previewOrDownload(req, res, bp, rp, st);

@@ -38,6 +38,8 @@ function normalizeConfig(pluginConfig, api) {
     maxPreviewBytes: c.maxPreviewBytes ?? 1024 * 1024,
     maxEditBytes: c.maxEditBytes ?? 512 * 1024,
     maxListEntries: c.maxListEntries ?? 5000,
+    maxZipEntries: c.maxZipEntries ?? 2000,
+    searchScanLimit: c.searchScanLimit ?? 20000,
     showHidden: c.showHidden ?? false,
     shares: {
       enabled: c.shares?.enabled ?? true,
