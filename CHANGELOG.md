@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.1
+- Fix: zip general-purpose flags had the encryption bit set (0x0809 -> 0x0808); strict readers like Python zipfile refused the archives
+
 ## 0.4.0 — file operations
 - Delete + rename/move endpoints and per-row UI buttons (read-write roots only, confirm dialog, root-self refused)
 - `?zip=1` streamed folder download (deflate, data-descriptor entries, symlink-safe, `maxZipEntries` cap)

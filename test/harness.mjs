@@ -292,7 +292,9 @@ ok('move missing source -> 404', r.status === 404);
   const count = eocdOff >= 0 ? zbuf.readUInt16LE(eocdOff + 10) : -1;
   ok('zip EOCD lists 2 entries', count === 2);
   const names = {}; let p2 = eocdOff >= 0 ? zbuf.readUInt32LE(eocdOff + 16) : 0;
+  let flagsOk = true;
   for (let i = 0; i < count; i++) {
+    if ((zbuf.readUInt16LE(p2 + 8) & 1) !== 0) flagsOk = false; // bit 0 = encrypted, must be clear
     const nl = zbuf.readUInt16LE(p2 + 28), el = zbuf.readUInt16LE(p2 + 30), cl = zbuf.readUInt16LE(p2 + 32);
     const csize = zbuf.readUInt32LE(p2 + 20), loff = zbuf.readUInt32LE(p2 + 42);
     const name = zbuf.toString('utf8', p2 + 46, p2 + 46 + nl);
@@ -303,6 +305,7 @@ ok('move missing source -> 404', r.status === 404);
   }
   ok('zip entry one.txt content', names['one.txt'] === 'alpha-content');
   ok('zip entry nested/two.txt content', names['nested/two.txt'] === 'bravo-content');
+  ok('zip general-purpose flags: encryption bit clear', flagsOk);
   r = await get(`/cfs${roDir}/?zip=1`);
   ok('zip of ro root allowed (read op)', r.status === 200);
 }
