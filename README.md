@@ -14,6 +14,10 @@ Born from a day-trip file server; packaged for everyone.
 - **Previews**: images, video, audio, PDF, and syntax-neutral text views
 - **Text editor** with Ctrl-S save and **conflict-safe writes** (an `x-if-mtime` guard refuses to clobber a file that changed on disk since you opened it — 409 instead of silent overwrite)
 - **Uploads & folders**: drag-and-drop upload and new-folder creation on read-write roots
+- **File operations**: rename/move and permanent delete with confirm, per-row buttons on read-write roots (`POST /_move?from=&to=`, `POST /_delete?path=`) — never on read-only roots, never on a root itself
+- **Folder zip**: `?zip=1` on any directory streams a deflate-compressed `.zip` of the whole tree (memory-safe streaming, symlink-safe, entry-capped)
+- **Search**: `GET /_search?root=<dir>&q=<term|*glob*>` — recursive name search, optional `content=1` body grep of text files, `html=1` results page or JSON; search box built into every listing
+- **Markdown preview**: `.md` files render (headings, lists, code fences, bold/italic/links/blockquotes) with a one-click raw toggle — no external libraries
 - **Range requests** for streaming media, `?dl=1` forced download, `?raw=1` raw bytes (with CORS, handy for embedding)
 - **JSON listings**: `?json=1` on any directory returns `{entries:[{name,dir,size,mtime}]}` with CORS — machine-readable for widgets and scripts
 - **Read-only share token**: set `auth.token` and GET/HEAD requests with `?t=<token>` (or `x-cfs-token` header) bypass basic auth — perfect for dashboard widgets and preview links. Writes always require basic auth, never the token.

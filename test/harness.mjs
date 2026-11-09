@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import assert from 'node:assert/strict';
+import zlib from 'node:zlib';
 import { createClawFileServer } from '../core.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cfs-test-'));
@@ -243,6 +244,100 @@ ok('unknown drop -> 404', r.status === 404);
   r = await fetch(`${abase2}/cfs/d/${dp3.code}?name=..%2F..%2Fescape.txt`, { method: 'POST', body: 'x' });
   const j = await r.json();
   ok('drop name sanitized', r.status === 201 && !j.name.includes('..') && !fs.existsSync(path.join(rwDir, 'escape.txt')));
+}
+
+// 18. delete
+fs.writeFileSync(path.join(rwDir, 'doomed.txt'), 'bye\n');
+r = await fetch(`${base}/cfs/_delete?path=${encodeURIComponent(rwDir + '/doomed.txt')}`, { method: 'POST' });
+ok('delete file -> 201', r.status === 201 && !fs.existsSync(path.join(rwDir, 'doomed.txt')));
+fs.mkdirSync(path.join(rwDir, 'dodir'), { recursive: true });
+fs.writeFileSync(path.join(rwDir, 'dodir', 'inner.txt'), 'x');
+r = await fetch(`${base}/cfs/_delete?path=${encodeURIComponent(rwDir + '/dodir')}`, { method: 'POST' });
+ok('delete dir recursive -> 201', r.status === 201 && !fs.existsSync(path.join(rwDir, 'dodir')));
+r = await fetch(`${base}/cfs/_delete?path=${encodeURIComponent(roDir + '/static.txt')}`, { method: 'POST' });
+ok('delete on ro root -> 403', r.status === 403 && fs.existsSync(path.join(roDir, 'static.txt')));
+r = await fetch(`${base}/cfs/_delete?path=${encodeURIComponent(tmp + '/outside.txt')}`, { method: 'POST' });
+ok('delete outside roots -> 403', r.status === 403);
+r = await fetch(`${base}/cfs/_delete?path=${encodeURIComponent(rwDir)}`, { method: 'POST' });
+ok('delete root itself -> 403', r.status === 403 && fs.existsSync(rwDir));
+r = await fetch(`${base}/cfs/_delete?path=${encodeURIComponent(rwDir + '/ghost')}`, { method: 'POST' });
+ok('delete missing -> 404', r.status === 404);
+r = await fetch(`${tbase}/cfs/_delete?path=${encodeURIComponent(rwDir + '/note.md')}&t=share-token-123`, { method: 'POST' });
+ok('token cannot delete -> 401', r.status === 401 && fs.existsSync(path.join(rwDir, 'note.md')));
+
+// 19. move / rename
+fs.writeFileSync(path.join(rwDir, 'a.txt'), 'move me\n');
+r = await fetch(`${base}/cfs/_move?from=${encodeURIComponent(rwDir + '/a.txt')}&to=${encodeURIComponent(rwDir + '/b.txt')}`, { method: 'POST' });
+ok('rename -> 201 + on disk', r.status === 201 && fs.existsSync(path.join(rwDir, 'b.txt')) && !fs.existsSync(path.join(rwDir, 'a.txt')));
+r = await fetch(`${base}/cfs/_move?from=${encodeURIComponent(rwDir + '/b.txt')}&to=${encodeURIComponent(rwDir + '/sub')}`, { method: 'POST' });
+ok('move onto existing -> 409', r.status === 409);
+r = await fetch(`${base}/cfs/_move?from=${encodeURIComponent(roDir + '/static.txt')}&to=${encodeURIComponent(rwDir + '/stolen.txt')}`, { method: 'POST' });
+ok('move from ro root -> 403', r.status === 403 && fs.existsSync(path.join(roDir, 'static.txt')));
+r = await fetch(`${base}/cfs/_move?from=${encodeURIComponent(rwDir + '/b.txt')}&to=${encodeURIComponent(tmp + '/escaped.txt')}`, { method: 'POST' });
+ok('move outside roots -> 403', r.status === 403 && fs.existsSync(path.join(rwDir, 'b.txt')));
+r = await fetch(`${base}/cfs/_move?from=${encodeURIComponent(rwDir + '/nope')}&to=${encodeURIComponent(rwDir + '/x')}`, { method: 'POST' });
+ok('move missing source -> 404', r.status === 404);
+
+// 20. folder zip download
+{
+  const zdir = path.join(rwDir, 'zpack');
+  fs.mkdirSync(path.join(zdir, 'nested'), { recursive: true });
+  fs.writeFileSync(path.join(zdir, 'one.txt'), 'alpha-content');
+  fs.writeFileSync(path.join(zdir, 'nested', 'two.txt'), 'bravo-content');
+  r = await get(`/cfs${zdir}/?zip=1`);
+  const zbuf = Buffer.from(await r.arrayBuffer());
+  ok('zip 200 + content-type + disposition', r.status === 200 && (r.headers.get('content-type') || '').includes('application/zip') && /attachment/.test(r.headers.get('content-disposition') || ''));
+  // parse central directory: EOCD -> entries -> inflate raw
+  const eocdOff = zbuf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  const count = eocdOff >= 0 ? zbuf.readUInt16LE(eocdOff + 10) : -1;
+  ok('zip EOCD lists 2 entries', count === 2);
+  const names = {}; let p2 = eocdOff >= 0 ? zbuf.readUInt32LE(eocdOff + 16) : 0;
+  for (let i = 0; i < count; i++) {
+    const nl = zbuf.readUInt16LE(p2 + 28), el = zbuf.readUInt16LE(p2 + 30), cl = zbuf.readUInt16LE(p2 + 32);
+    const csize = zbuf.readUInt32LE(p2 + 20), loff = zbuf.readUInt32LE(p2 + 42);
+    const name = zbuf.toString('utf8', p2 + 46, p2 + 46 + nl);
+    const lnl = zbuf.readUInt16LE(loff + 26), lel = zbuf.readUInt16LE(loff + 28);
+    const dataStart = loff + 30 + lnl + lel;
+    names[name] = zlib.inflateRawSync(zbuf.subarray(dataStart, dataStart + csize)).toString();
+    p2 += 46 + nl + el + cl;
+  }
+  ok('zip entry one.txt content', names['one.txt'] === 'alpha-content');
+  ok('zip entry nested/two.txt content', names['nested/two.txt'] === 'bravo-content');
+  r = await get(`/cfs${roDir}/?zip=1`);
+  ok('zip of ro root allowed (read op)', r.status === 200);
+}
+
+// 21. search
+{
+  fs.mkdirSync(path.join(rwDir, 'deep', 'deeper'), { recursive: true });
+  fs.writeFileSync(path.join(rwDir, 'deep', 'deeper', 'needle.cfg'), 'unique name only');
+  fs.writeFileSync(path.join(rwDir, 'deep', 'other.txt'), 'nothing here findme-XYZ');
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=needle.cfg`);
+  { const j = await r.json();
+    ok('search by name finds nested file', r.status === 200 && j.matches.length === 1 && j.matches[0].rel === 'deep/deeper/needle.cfg' && j.matches[0].match === 'name'); }
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=findme-XYZ&content=1`);
+  { const j = await r.json();
+    ok('search content=1 finds by body', r.status === 200 && j.matches.some((m) => m.rel === 'deep/other.txt' && m.match === 'content')); }
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=*.cfg`);
+  { const j = await r.json();
+    ok('search glob *.cfg', r.status === 200 && j.matches.some((m) => m.name === 'needle.cfg')); }
+  r = await get(`/cfs/_search?root=${encodeURIComponent(tmp)}&q=x`);
+  ok('search outside roots -> 403', r.status === 403);
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}`);
+  ok('search without q -> 400', r.status === 400);
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=needle&html=1`);
+  ok('search html page', r.status === 200 && (await r.text()).includes('needle.cfg'));
+  r = await get(`/cfs${rwDir}/`);
+  ok('listing shows search box', (await r.text()).includes('_search'));
+}
+
+// 22. markdown preview
+{
+  fs.writeFileSync(path.join(rwDir, 'doc.md'), '# Title\n\nSome **bold** and `code` and [link](https://example.com)\n\n- item one\n- item two\n\n```\nfenced block\n```\n');
+  r = await get(`/cfs${rwDir}/doc.md`);
+  const html = await r.text();
+  ok('md page has rendered view + toggle', r.status === 200 && html.includes('id="mdview"') && html.includes('show raw'));
+  ok('md page embeds source safely', html.includes('const MD=') && html.split('</scr' + 'ipt>').length === 2);
 }
 
 server.close(); authServer.close(); tokServer.close();
