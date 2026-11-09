@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+<g transform="translate(0,-43)">
   <!-- ClawFileServer: crab inside folder, blue arrow backdrop. Flat vector. -->
   <rect x="0" y="0" width="512" height="512" rx="96" fill="#0B2545"/>
   <path d="M256 118 L480 286 H372 V480 H140 V286 H32 Z" fill="#38BDF8" stroke="#38BDF8" stroke-width="14" stroke-linejoin="round"/>
@@ -19,4 +20,5 @@
   <!-- eyes on stalk tips -->
   <circle cx="196" cy="231" r="7" fill="#0B2545"/>
   <circle cx="316" cy="231" r="7" fill="#0B2545"/>
+</g>
 </svg>
