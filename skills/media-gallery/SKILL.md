@@ -21,6 +21,23 @@ it works whether or not the viewer's browser has the basic-auth login cached.
 - The widget renders in a sandbox on its own origin, so all URLs must be absolute.
   In the default mode the template builds them from `openclaw.host.controlUiBaseUrl`
   at runtime — i.e. **the same domain the dashboard itself is served from**.
+- The template re-polls the listing **every 60 s** with a name+mtime signature
+  check: no re-render when nothing changed, and a transient fetch failure never
+  wipes the grid. Keep this polling when rebuilding — a widget that only fetches
+  on page load goes stale and looks "frozen" (learned 2026-11-08).
+
+## Feeding the gallery
+
+The widget shows only images inside `__DIR__` (or symlinks pointing into other
+allowed roots — symlinks are listed and served fine: JSON listing includes them,
+`?raw=1` returns 200). Convention that keeps it useful:
+
+- **Every image an agent generates or works on in chat gets at least a symlink in
+  the gallery dir**, e.g. `ln -s ../projects/foo/assets/bar.png media/bar.png`.
+  Keepsakes go in as real files; symlinks are the minimum for work-in-progress
+  previews. (Owner rule, the owner, 2026-11-08.)
+- Name symlinks descriptively — the widget displays the link's filename, not the
+  target's.
 
 ## Default setup: same domain as the Control UI (recommended)
 
