@@ -127,7 +127,7 @@ function grid(list,tot){
   foot.textContent='showing '+list.length+' of '+tot+' images in '+DIR+' \u00b7 listings and previews fetched live \u00b7 tap a card for the link';
   root.appendChild(foot);
 }
-function refresh(){
+function refresh(auto){
   var b=resolveBase();
   if(!b){
     if((refresh.tries=(refresh.tries||0)+1)<40){
@@ -137,15 +137,18 @@ function refresh(){
     fail('could not detect the Control UI origin \u2014 set BASE to an explicit URL');
     return;
   }
-  root.innerHTML='<div class="foot">loading\u2026</div>';
+  if(!auto)root.innerHTML='<div class="foot">loading\u2026</div>';
   fetch(b+DIRP+'/?json=1&t='+TOKEN).then(function(r){
     if(!r.ok)throw new Error('HTTP '+r.status+(r.status===401?' (bad or missing token)':''));
     return r.json();
   }).then(function(j){
     var all=(j.entries||[]).filter(function(e){return !e.dir&&IMG_RE.test(e.name);});
     all.sort(function(a,b){return (b.mtime||0)-(a.mtime||0);});
+    var sig=all.map(function(e){return e.name+':'+(e.mtime||0);}).join('|');
+    if(auto&&sig===refresh.sig)return;
+    refresh.sig=sig;
     grid(all.slice(0,MAX),all.length);
-  }).catch(function(e){fail('gallery unavailable: '+e.message+' \u2014 check the share token and network, then retry');});
+  }).catch(function(e){if(!auto)fail('gallery unavailable: '+e.message+' \u2014 check the share token and network, then retry');});
 }
 function fail(msg){
   root.innerHTML='';
@@ -156,5 +159,6 @@ function fail(msg){
   root.appendChild(er);
 }
 refresh();
+setInterval(function(){refresh(true);},60000);
 })();
 </script>
