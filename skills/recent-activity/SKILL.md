@@ -1,31 +1,33 @@
-# Recent Activity widget
+# Recent Activity Widget — Builder Skill
 
-Builds a self-refreshing dashboard widget listing files modified across all
-ClawFileServer roots within a time window (default 24h), newest first — the
-"what changed when" feed. Backed by `GET /_recent?hours=&max=` (JSON).
+Builds a self-refreshing "what changed when" dashboard widget for the OpenClaw Control UI, backed by ClawFileServer's `/_recent` endpoint.
 
-## Build & pin
+## Inputs
 
-1. Ensure the share token file exists: `ops/recent-activity/.token` (same token
-   as `ops/media-gallery/.token`).
-2. `node ops/recent-activity/build.mjs` → writes `ops/recent-activity/widget.html`.
-3. Pin with `show_widget`: name `recent-activity`, tab `gallery`, size `lg`,
-   `widget_code` = exact file contents. Re-pin after rebuilds (pin-by-name
-   updates in place).
+Ask the user (or infer):
 
-## Template placeholders (build.mjs substitutes)
+- **hours** — default time window (1 / 6 / 24 / 72 / 168; default 24). The widget has a window picker; this just sets the initial value baked into the template.
+- **root** — optional root name to pin (default: all roots, with a picker).
+- **token** — ClawFileServer share token from `plugins.entries.clawfileserver.config.auth.token` (main session only; never echo it). If the user prefers no token, build without one (browser basic-auth prompt applies to row links).
 
-- `__BASE__` — `auto` (same-origin as Control UI, recommended) or an absolute
-  origin like `https://owner-redacted` (its nginx rewrite prepends the basePath,
-  so do NOT append it to BASE in that mode).
-- `__BASEPATH__` — plugin mount path, default `clawfileserver`.
-- `__TOKEN__` — read-only share token.
-- `__HOURS__` — lookback window (default 24).
-- `__MAX__` — max rows (default 60).
+## Build
+
+1. Read the template `widget-template.html` from this skill directory.
+2. Replace placeholders:
+   - `__BASE__` → `auto` (recommended: resolves the gateway origin at runtime from `openclaw.host.controlUiBaseUrl`, works through any proxy/domain) or an explicit `http://127.0.0.1:18789`.
+   - `__TOKEN__` → the share token, or empty string for no token.
+   - `__BASEPATH__` → `clawfileserver` (or the configured route prefix).
+3. Call `show_widget` with:
+   - `title`: "Recent activity"
+   - `layout`: `{w: 12, h: 9}`
+   - `pin`: true
+   - `name`: `recent-activity`
+   - `html`: the filled template
+
+The widget auto-refreshes every 60 s, has window + root pickers, stat chips (files / folders / total bytes touched), and each row links to the file through CFS (inline preview for media, download for the rest).
 
 ## Notes
 
-- The widget sandbox has no same-origin access; `auto` mode resolves
-  `openclaw.host.controlUiBaseUrl` a moment after init and retries until present.
-- Rows link out to the CFS file page with the token attached.
-- No cron: refresh is in-widget (60s) plus manual rebuilds when wanted.
+- The widget sandbox has no same-origin access, so `__BASE__=auto` is what makes it work when the Control UI is served through a reverse proxy (e.g. `owner-redacted`). Verify the result renders from the requesting viewer's perspective; a successful `show_widget` status alone is not rendering proof.
+- `/_recent` scans mtimes across roots; on very large trees keep `hours` small (the scan is capped by `searchScanLimit`).
+- Rebuild and re-pin with the same `name` to update; do not create duplicate tabs.
