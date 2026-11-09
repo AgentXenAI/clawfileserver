@@ -125,8 +125,19 @@ form.srch button:hover{border-color:#38BDF8}
 .mdv code{background:#0B2545;border-radius:3px;padding:1px 4px}
 .mdv pre{background:#0B2545}
 .mdv blockquote{border-left:3px solid #FF7A29;margin:8px 0;padding:2px 12px;color:#7FA8C9}
-.zip{color:#7FA8C9;font-size:12px;border:1px solid #2A4E7C;border-radius:4px;padding:0 6px;text-decoration:none;margin-left:8px}
+.zip{color:#7FA8C9;font-size:12px;border:1px solid #2A4E7C;border-radius:4px;padding:0 6px;text-decoration:none;margin-left:8px;white-space:nowrap;display:inline-block}
 .zip:hover{border-color:#38BDF8;color:#38BDF8}
+td.name{word-break:normal;overflow-wrap:anywhere}
+@media (max-width:720px){
+ body{padding:14px}
+ th.mt,td.mt{display:none}
+ td.name{font-size:13px}
+ button.mini{padding:0 5px;font-size:11px;margin-left:4px}
+ td.act{padding-right:0}
+ td{padding:3px 8px 3px 0}
+ th{padding:4px 8px 4px 0}
+ .thumb{height:30px;min-width:30px;margin-right:6px}
+}
 `;
 
 const here = path.dirname(new URL(import.meta.url).pathname);
@@ -271,8 +282,8 @@ document.addEventListener('click',async(ev)=>{
 <h1>${LOGO_URI ? `<img class="logo" src="${LOGO_URI}" alt="">` : '🦀 '}<a href="${esc(bp)}/">ClawFileServer</a></h1>
 ${crumbs(bp, p)}
 ${upUI}
-<table><tr><th>name</th><th>size</th><th>modified</th><th></th></tr>
-${rootFor(p) && p !== rootFor(p).path ? `<tr><td class="name"><a href="${esc(encPath(bp, path.dirname(p)))}/">..</a></td><td></td><td></td><td></td></tr>` : ''}
+<table><tr><th>name</th><th>size</th><th class="mt">modified</th><th></th></tr>
+${rootFor(p) && p !== rootFor(p).path ? `<tr><td class="name"><a href="${esc(encPath(bp, path.dirname(p)))}/">..</a></td><td></td><td class="mt"></td><td></td></tr>` : ''}
 ${rows.join('\n')}
 </table>
 ${searchUI}
