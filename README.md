@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/icons/cfs-crab-folder-transparent-256.png" alt="ClawFileServer logo — crab climbing out of a folder, ascending a blue arrow" width="160"/>
+  <img src="assets/icons/cfs-crab-folder-transparent.svg" alt="ClawFileServer logo — crab climbing out of a folder, ascending a blue arrow" width="160"/>
 </p>
 
 # ClawFileServer 🦀📂⬆️
