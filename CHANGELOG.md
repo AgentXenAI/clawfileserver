@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.7 — security (ClawScan audit 2026-11-09)
+- **Fail-closed defaults**: default root is now read-only; without `auth.mode="basic"` every root is forced read-only and all mutations (PUT/mkdir/delete/move/drop) are refused with 403. The share token remains read-only by design. Config normalization moved to `config.js` (unit-testable).
+- **Symlink containment**: one `resolveContained()` realpath helper gates every path operation (reads, writes, shares, drops, mkdir, move, delete, search, zip, recent). A symlink component inside a root can no longer point outside it; write paths additionally refuse an existing symlink at the target.
+- **Stored-XSS hardening**: active content (`.html .htm .svg .xhtml`) is always served with `Content-Disposition: attachment`, `Content-Security-Policy: sandbox; default-src 'none'`, and `X-Content-Type-Options: nosniff` on every streaming path (raw, share, range, fallback). SVG inline previews removed (downloads instead); HTML source preview stays (escaped text).
+- Harness: 131 checks (was 100) — regression tests per audit finding.
+
 ## 0.4.5
 - New: `GET /_recent?hours=24&max=100` activity feed (mtime walk across all roots, JSON) + bundled `recent-activity` dashboard widget skill (self-refreshing "what changed when" list)
 

@@ -7,6 +7,7 @@ import path from 'node:path';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import { createClawFileServer } from '../core.js';
+import { normalizeConfig } from '../config.js';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cfs-test-'));
 const roDir = path.join(tmp, 'ro');
@@ -380,6 +381,104 @@ ok('move missing source -> 404', r.status === 404);
     try { new Function(script); parses = true; } catch { parses = false; }
     ok('md page inline script parses as valid JS', parses && script.includes('mdview'));
   }
+}
+
+// 23. security regressions (v0.4.7 — ClawScan audit 2026-11-09)
+{
+  // 23a. fail-closed config defaults (finding 1)
+  const fakeApi = { config: {}, logger: { info() {}, warn() {} } };
+  const cfgDefault = normalizeConfig({}, fakeApi);
+  ok('default config: auth mode none', cfgDefault.auth.mode === 'none');
+  ok('default config: default root is read-only', cfgDefault.roots.every((x) => x.mode === 'ro'));
+  const cfgForced = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }] }, fakeApi);
+  ok('unauth config: rw roots forced to ro', cfgForced.roots.every((x) => x.mode === 'ro'));
+  const cfgTok = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { token: 't' } }, fakeApi);
+  ok('token-only config: still forced ro (token is read-only)', cfgTok.roots.every((x) => x.mode === 'ro'));
+  const cfgAuth = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: 'p' } }, fakeApi);
+  ok('basic-auth config: rw preserved', cfgAuth.roots[0].mode === 'rw');
+  {
+    const unauth = createClawFileServer({ ...cfgForced, maxPreviewBytes: 1024, maxEditBytes: 1024, maxListEntries: 10, shares: { stateFile: path.join(tmp, 'state-unauth.json') } });
+    const usrv = http.createServer((req, res) => unauth.handle(req, res, '/cfs'));
+    await new Promise((r2) => usrv.listen(0, '127.0.0.1', r2));
+    const ubase = `http://127.0.0.1:${usrv.address().port}`;
+    r = await fetch(`${ubase}/cfs${rwDir}/note.md`);
+    ok('unauth default: reads still work', r.status === 200);
+    r = await fetch(`${ubase}/cfs${rwDir}/hack.txt`, { method: 'PUT', body: 'x' });
+    ok('unauth default: PUT refused -> 403', r.status === 403 && !fs.existsSync(path.join(rwDir, 'hack.txt')));
+    r = await fetch(`${ubase}/cfs/_mkdir?path=${encodeURIComponent(rwDir + '/nope')}`, { method: 'POST' });
+    ok('unauth default: mkdir refused -> 403', r.status === 403);
+    usrv.close();
+  }
+}
+{
+  // 23b. symlink containment (finding 2)
+  fs.symlinkSync(path.join(tmp, 'outside.txt'), path.join(rwDir, 'link-out.txt'));
+  r = await get(`/cfs${rwDir}/link-out.txt`);
+  ok('symlink file escaping root: read -> 403', r.status === 403);
+  r = await fetch(`${base}/cfs${rwDir}/link-out.txt`, { method: 'PUT', body: 'x' });
+  ok('symlink file escaping root: write -> 403', r.status === 403);
+  ok('escape target untouched on disk', fs.readFileSync(path.join(tmp, 'outside.txt'), 'utf8') === 'secret\n');
+  r = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/link-out.txt')}`, { method: 'POST' });
+  ok('symlink escaping root: share create -> 403', r.status === 403);
+  r = await fetch(`${base}/cfs/_move?from=${encodeURIComponent(rwDir + '/link-out.txt')}&to=${encodeURIComponent(rwDir + '/link-moved.txt')}`, { method: 'POST' });
+  ok('symlink escaping root: move -> 403', r.status === 403);
+  r = await fetch(`${base}/cfs/_delete?path=${encodeURIComponent(rwDir + '/link-out.txt')}`, { method: 'POST' });
+  ok('symlink escaping root: delete -> 403', r.status === 403 && fs.existsSync(path.join(rwDir, 'link-out.txt')));
+  fs.symlinkSync(tmp, path.join(rwDir, 'dir-out')); // dir symlink: tmp holds outside.txt
+  r = await get(`/cfs${rwDir}/dir-out/outside.txt`);
+  ok('symlink dir escaping root: read -> 403', r.status === 403);
+  r = await get(`/cfs${rwDir}/dir-out/`);
+  ok('symlink dir escaping root: listing -> 403', r.status === 403);
+  r = await fetch(`${base}/cfs/_mkdir?path=${encodeURIComponent(rwDir + '/dir-out/new')}`, { method: 'POST' });
+  ok('symlink dir escaping root: mkdir -> 403', r.status === 403);
+  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir)}&ttl=1h`, { method: 'POST' });
+  { const shs = await jr.json();
+    r = await fetch(`${base}/cfs/s/${shs.code}/dir-out/outside.txt`);
+    ok('dir share: symlinked subdir escape -> 403', r.status === 403);
+    r = await fetch(`${base}/cfs/s/${shs.code}/link-out.txt`);
+    ok('dir share: escaping file link -> 403', r.status === 403); }
+  fs.symlinkSync(path.join(rwDir, 'note.md'), path.join(rwDir, 'link-in.md'));
+  r = await get(`/cfs${rwDir}/link-in.md`);
+  ok('in-root symlink still serves (read)', r.status === 200);
+  r = await fetch(`${base}/cfs${rwDir}/link-in.md`, { method: 'PUT', body: 'x' });
+  ok('write through symlink refused -> 403', r.status === 403);
+  fs.mkdirSync(path.join(rwDir, 'dropdir'));
+  jr = await fetch(`${base}/cfs/_drop?dir=${encodeURIComponent(rwDir + '/dropdir')}&ttl=1h`, { method: 'POST' });
+  { const dpd = await jr.json();
+    fs.rmSync(path.join(rwDir, 'dropdir'), { recursive: true });
+    fs.symlinkSync(tmp, path.join(rwDir, 'dropdir'));
+    r = await fetch(`${base}/cfs/d/${dpd.code}?name=x.txt`, { method: 'POST', body: 'x' });
+    ok('drop after dir swapped to escape symlink -> 403', r.status === 403); }
+}
+{
+  // 23c. active content headers (finding 3)
+  fs.writeFileSync(path.join(rwDir, 'page.html'), '<script>alert(1)</script>');
+  fs.writeFileSync(path.join(rwDir, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>');
+  r = await get(`/cfs${rwDir}/page.html?raw=1`);
+  ok('raw html: attachment disposition', /attachment/.test(r.headers.get('content-disposition') || ''));
+  ok('raw html: CSP sandbox', (r.headers.get('content-security-policy') || '').includes('sandbox'));
+  ok('raw html: nosniff', r.headers.get('x-content-type-options') === 'nosniff');
+  r = await get(`/cfs${rwDir}/page.html?raw=1`, { headers: { Range: 'bytes=0-5' } });
+  ok('ranged raw html: 206 + attachment + sandbox', r.status === 206
+    && /attachment/.test(r.headers.get('content-disposition') || '')
+    && (r.headers.get('content-security-policy') || '').includes('sandbox'));
+  r = await get(`/cfs${rwDir}/icon.svg?raw=1`);
+  ok('raw svg: attachment + sandbox + nosniff', /attachment/.test(r.headers.get('content-disposition') || '')
+    && (r.headers.get('content-security-policy') || '').includes('sandbox')
+    && r.headers.get('x-content-type-options') === 'nosniff');
+  r = await get(`/cfs${rwDir}/icon.svg`);
+  ok('svg default: no inline preview, downloads', /attachment/.test(r.headers.get('content-disposition') || ''));
+  r = await get(`/cfs${rwDir}/page.html`);
+  { const t = await r.text();
+    ok('html text preview stays escaped', r.status === 200 && t.includes('&lt;script&gt;') && !t.includes('<script>alert')); }
+  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/page.html')}&ttl=1h`, { method: 'POST' });
+  { const shx = await jr.json();
+    r = await get(`/cfs/s/${shx.code}`);
+    ok('shared html: attachment + sandbox', r.status === 200
+      && /attachment/.test(r.headers.get('content-disposition') || '')
+      && (r.headers.get('content-security-policy') || '').includes('sandbox')); }
+  r = await get(`/cfs${rwDir}/note.md?raw=1`);
+  ok('safe type unaffected (no attachment on raw md)', r.status === 200 && !r.headers.get('content-disposition'));
 }
 
 server.close(); authServer.close(); tokServer.close();

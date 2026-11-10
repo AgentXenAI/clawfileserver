@@ -35,7 +35,11 @@ const MIME = {
 const TEXTY = new Set(['.html', '.css', '.js', '.mjs', '.json', '.txt', '.md', '.log',
   '.yaml', '.yml', '.toml', '.ini', '.conf', '.csv', '.sh', '.py', '.xml',
   '.ts', '.tsx', '.jsx', '.c', '.h', '.cpp', '.rs', '.go', '.rb', '.java', '.sql', '.env']);
-const IMG = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.ico']);
+// SECURITY: active content — markup that a browser would execute if rendered as
+// a document. Served files must NEVER run scripts on the gateway origin
+// (stored XSS). streamFile() forces download + sandbox on every streaming path.
+const ACTIVE = new Set(['.html', '.htm', '.svg', '.xhtml']);
+const IMG = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico']);
 const VIDEO = new Set(['.mp4', '.webm', '.ogv', '.mov', '.m4v', '.mkv']);
 const AUDIO = new Set(['.mp3', '.wav', '.ogg', '.oga', '.m4a', '.aac', '.flac']);
 
@@ -150,11 +154,17 @@ let VERSION = '0.3.0';
 try { VERSION = JSON.parse(fs.readFileSync(path.join(here, 'package.json'), 'utf8')).version || VERSION; } catch {}
 
 export function createClawFileServer(cfg) {
-  const roots = cfg.roots.map((r) => ({
-    path: path.resolve(r.path),
-    mode: r.mode === 'rw' ? 'rw' : 'ro',
-    label: r.label || path.resolve(r.path),
-  }));
+  const roots = cfg.roots.map((r) => {
+    const lexical = path.resolve(r.path);
+    let real = lexical;
+    try { real = fs.realpathSync(lexical); } catch { /* root may not exist yet; lexical fallback */ }
+    return {
+      path: lexical,
+      real,
+      mode: r.mode === 'rw' ? 'rw' : 'ro',
+      label: r.label || lexical,
+    };
+  });
   const maxPreview = cfg.maxPreviewBytes;
   const maxEdit = cfg.maxEditBytes;
   const maxList = cfg.maxListEntries;
@@ -164,6 +174,64 @@ export function createClawFileServer(cfg) {
   const inRoot = (p) => roots.some((r) => p === r.path || p.startsWith(r.path + '/'));
   const rootFor = (p) => roots.find((r) => p === r.path || p.startsWith(r.path + '/'));
   const inWritable = (p) => roots.some((r) => r.mode === 'rw' && (p === r.path || p.startsWith(r.path + '/')));
+
+  /**
+   * SECURITY: real-path containment. Lexical checks (inRoot above) are bypassed
+   * by symlink components inside a root (e.g. `workspace/escape -> /etc`).
+   * resolveContained() canonicalizes the EXISTING portion of `p` with
+   * realpathSync (walking up for not-yet-existing tails) and requires the
+   * resolved path to stay under the REAL path of the root that lexically
+   * contains it. With forWrite, an existing symlink at the final component is
+   * also refused (writes must not follow links). Every containment gate —
+   * reads, writes, shares, drops, mkdir, move, delete, search, zip, recent —
+   * goes through this ONE helper. Best-effort vs a concurrent link swap
+   * (check-to-use race); acceptable on a single-operator box.
+   * Returns { real, root } or { err }.
+   */
+  function resolveContained(p, forWrite = false) {
+    const root = rootFor(p);
+    if (!root) return { err: 'outside configured roots' };
+    let real;
+    try {
+      real = fs.realpathSync(p);
+    } catch (e) {
+      if (e.code === 'ENOENT' || e.code === 'ENOTDIR') {
+        // missing tail (new file/dir): canonicalize nearest existing ancestor
+        let dir = p;
+        const tail = [];
+        for (;;) {
+          try { real = fs.realpathSync(dir); break; }
+          catch (e2) {
+            if (e2.code !== 'ENOENT' && e2.code !== 'ENOTDIR') return { err: `cannot resolve path: ${e2.code}` };
+            const up = path.dirname(dir);
+            if (up === dir) return { err: 'cannot resolve path' };
+            tail.unshift(path.basename(dir));
+            dir = up;
+          }
+        }
+        real = path.resolve(real, ...tail);
+      } else {
+        // ELOOP, EACCES, ...: cannot verify containment -> refuse
+        return { err: `cannot resolve path: ${e.code}` };
+      }
+    }
+    if (real !== root.real && !real.startsWith(root.real + path.sep)) {
+      return { err: 'path escapes root via symlink' };
+    }
+    if (forWrite) {
+      try { if (fs.lstatSync(p).isSymbolicLink()) return { err: 'symlink components are not allowed in write paths' }; }
+      catch { /* new file: fine */ }
+    }
+    return { real, root };
+  }
+
+  /** Containment + read-write gate for mutating operations. */
+  function writeGate(p) {
+    const c = resolveContained(p, true);
+    if (c.err) return c;
+    if (c.root.mode !== 'rw') return { err: 'that path is not under a read-write root' };
+    return c;
+  }
 
   const page = (title, body) => `<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
@@ -323,7 +391,13 @@ addEventListener('keydown',(e)=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preve
       'Last-Modified': new Date(st.mtimeMs).toUTCString(),
       'Access-Control-Allow-Origin': '*',
     };
-    if (asDownload) {
+    if (ACTIVE.has(ext)) {
+      // SECURITY: active content is forced to download and is sandboxed even if
+      // opened; applies to raw, share, range, and fallback streaming alike.
+      headers['Content-Disposition'] = `attachment; filename="${path.basename(p).replace(/"/g, '')}"`;
+      headers['Content-Security-Policy'] = "sandbox; default-src 'none'";
+      headers['X-Content-Type-Options'] = 'nosniff';
+    } else if (asDownload) {
       headers['Content-Disposition'] = `attachment; filename="${path.basename(p).replace(/"/g, '')}"`;
     }
     let start = 0, end = st.size - 1, status = 200;
@@ -458,7 +532,8 @@ ${tag}`;
     try { target = decodeURIComponent(new URL(url, 'http://x').searchParams.get('path') || ''); }
     catch { return err(res, 400, 'bad path'); }
     const rp = path.resolve('/' + target.replace(/^\/+/, ''));
-    if (!inWritable(rp)) return err(res, 403, 'folder creation is limited to read-write roots');
+    const gate = writeGate(rp);
+    if (gate.err) return err(res, 403, gate.err);
     try { fs.mkdirSync(rp, { recursive: true }); }
     catch (e) { return err(res, 500, `mkdir failed: ${e.code}`); }
     log.info?.(`clawfileserver mkdir ${rp}`);
@@ -470,10 +545,10 @@ ${tag}`;
     const target = qp.get('path');
     if (!target) return err(res, 400, '?path=<absolute path> required');
     const rp = path.resolve('/' + String(target).replace(/^\/+/, ''));
-    const root = rootFor(rp);
-    if (!root) return err(res, 403, 'deletion is limited to configured roots');
-    if (root.mode !== 'rw') return err(res, 403, 'deletion is limited to read-write roots');
-    if (rp === root.path) return err(res, 403, 'refusing to delete a root itself');
+    const gate = resolveContained(rp);
+    if (gate.err) return err(res, 403, gate.err);
+    if (gate.root.mode !== 'rw') return err(res, 403, 'deletion is limited to read-write roots');
+    if (rp === gate.root.path) return err(res, 403, 'refusing to delete a root itself');
     let st;
     try { st = fs.lstatSync(rp); } catch (e) { return err(res, 404, `not found: ${e.code}`); }
     try {
@@ -491,10 +566,12 @@ ${tag}`;
       to = path.resolve('/' + String(qp.get('to') || '').replace(/^\/+/, ''));
     } catch { return err(res, 400, 'bad paths'); }
     if (!qp.get('from') || !qp.get('to')) return err(res, 400, '?from=<abs>&to=<abs> required');
-    const rf = rootFor(from), rt = rootFor(to);
-    if (!rf || !rt) return err(res, 403, 'both paths must be under configured roots');
-    if (rf.mode !== 'rw' || rt.mode !== 'rw') return err(res, 403, 'move is limited to read-write roots');
-    if (from === rf.path) return err(res, 403, 'refusing to move a root itself');
+    const gf = resolveContained(from);
+    if (gf.err) return err(res, 403, gf.err);
+    const gt = writeGate(to);
+    if (gt.err) return err(res, 403, gt.err);
+    if (gf.root.mode !== 'rw' || gt.root.mode !== 'rw') return err(res, 403, 'move is limited to read-write roots');
+    if (from === gf.root.path) return err(res, 403, 'refusing to move a root itself');
     if (to === from + '/') return err(res, 400, 'source and destination are the same');
     let st;
     try { st = fs.lstatSync(from); } catch (e) { return err(res, 404, `source not found: ${e.code}`); }
@@ -592,7 +669,7 @@ ${tag}`;
     const cutoff = Date.now() - hours * 3600e3;
     const single = qp.get('root');
     const walkRoots = single ? [{ path: path.resolve('/' + String(single).replace(/^\/+/, '')) }] : roots;
-    if (single && !inRoot(walkRoots[0].path)) return err(res, 403, 'root must be under a configured root');
+    if (single) { const g = resolveContained(walkRoots[0].path); if (g.err) return err(res, 403, g.err); }
     const items = [];
     let scanned = 0, truncated = false;
     outer: for (const root of walkRoots) {
@@ -625,7 +702,7 @@ ${tag}`;
     const q = String(qp.get('q') || '').trim();
     if (!q) return err(res, 400, '?q=<search term or *glob*> required');
     const rp = path.resolve('/' + String(qp.get('root') || '/').replace(/^\/+/, ''));
-    if (!inRoot(rp)) return err(res, 403, 'search root must be under a configured root');
+    { const g = resolveContained(rp); if (g.err) return err(res, 403, g.err); }
     try { if (!fs.statSync(rp).isDirectory()) throw new Error('notdir'); }
     catch { return err(res, 404, 'search root is not a directory'); }
     const wantContent = qp.get('content') === '1';
@@ -753,7 +830,7 @@ ${tag}`;
     const target = qp.get('path');
     if (!target) return err(res, 400, '?path=<absolute file or dir> required');
     const rp = path.resolve('/' + String(target).replace(/^\/+/, ''));
-    if (!inRoot(rp)) return err(res, 403, 'outside configured roots');
+    { const g = resolveContained(rp); if (g.err) return err(res, 403, g.err); }
     let st;
     try { st = fs.statSync(rp); } catch (e) { return err(res, 404, `not found: ${e.code}`); }
     const t = ttlFrom(qp); if (t.err) return err(res, 400, t.err);
@@ -769,7 +846,7 @@ ${tag}`;
     const target = qp.get('dir');
     if (!target) return err(res, 400, '?dir=<absolute destination dir> required');
     const rp = path.resolve('/' + String(target).replace(/^\/+/, ''));
-    if (!inWritable(rp)) return err(res, 403, 'drop target must be under a read-write root');
+    { const g = writeGate(rp); if (g.err) return err(res, 403, g.err); }
     const t = ttlFrom(qp); if (t.err) return err(res, 400, t.err);
     const maxN = Math.max(0, parseInt(qp.get('max') || '0', 10) || 0);
     let code; do { code = genCode(); } while (store.drops[code]);
@@ -831,7 +908,7 @@ ${tag}`;
       if (parts.length) return err(res, 404, 'not found');
       target = rec.path;
     }
-    if (!inRoot(target)) return err(res, 403, 'path no longer under configured roots');
+    { const g = resolveContained(target); if (g.err) return err(res, 403, g.err); }
     let st;
     try { st = fs.statSync(target); } catch { return err(res, 404, 'file no longer exists'); }
     if (st.isDirectory()) {
@@ -890,6 +967,11 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
     const maxBytes = shCfg.maxUploadBytes || 2 * 1024 ** 3;
     const day = new Date().toISOString().slice(0, 10);
     const dir = path.join(rec.dir, day);
+    { // re-verify containment at write time: the drop dir could have been swapped
+      // for a symlink since the portal was created
+      const g = writeGate(dir);
+      if (g.err) return err(res, 403, g.err);
+    }
     try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return err(res, 500, `mkdir failed: ${e.code}`); }
     let target = path.join(dir, name);
     if (fs.existsSync(target)) {
@@ -1026,7 +1108,8 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
 
       if (req.method === 'PUT') {
         const rp = path.resolve(p);
-        if (!inRoot(rp)) return err(res, 403, 'outside configured roots');
+        const gate = writeGate(rp);
+        if (gate.err) return err(res, 403, gate.err);
         return handlePut(req, res, rp);
       }
       if (req.method === 'POST' && p === '/_mkdir') return handleMkdir(req, res, url);
@@ -1039,7 +1122,7 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
       }
 
       const rp = path.resolve(p);
-      if (!inRoot(rp)) return err(res, 403, 'outside configured roots');
+      { const g = resolveContained(rp); if (g.err) return err(res, 403, g.err); }
       let st;
       try {
         st = fs.statSync(rp);

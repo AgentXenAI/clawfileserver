@@ -24,8 +24,8 @@ Born from a day-trip file server; packaged for everyone.
 - **Expiring share links**: `POST /_share?path=<abs>&ttl=24h&max=5` mints a `/s/<code>` capability URL (file or folder) with lifetime, optional download cap, and revoke — dead links answer `410 Gone`. Creation/list/revise always need basic auth; the read-only token is never enough.
 - **Drop portals**: `POST /_drop?dir=<abs-rw>&ttl=12h&max=10` mints a `/d/<code>` upload page — drag-and-drop, streamed straight to disk (memory-safe, 2 GiB default per file), date-partitioned folders, collision-safe names. Perfect for receiving files from someone outside your network without giving them an account.
 - **Bundled skill** `media-gallery`: teaches your agent to build a self-refreshing image-gallery dashboard widget on top of the JSON listing + share token (see `skills/media-gallery/`)
-- **Root-scoped security**: only configured roots are reachable; read-only roots can't be written; everything outside returns 403
-- **Optional basic auth** on the route (a password is generated and logged once if you enable `basic` without one)
+- **Root-scoped security**: only configured roots are reachable; read-only roots can't be written; everything outside returns 403. Realpath containment: symlinks inside a root can never point outside it (read or write).
+- **Fail-closed auth**: writes (upload/mkdir/edit/delete/move/drop) require `auth.mode: "basic"`. Without it every root is forced read-only — an unauthenticated server can only browse. A password is generated and logged once if you enable `basic` without one.
 
 ## Install
 
@@ -73,12 +73,13 @@ Records persist in `shares.stateFile` (default `<state-dir>/clawfileserver/share
 
 ## Security notes — read me
 
-- The route is mounted on the **Gateway HTTP port**. With `auth.mode: "none"` (the default) anyone who can reach that port can browse your configured roots. That is fine when the Gateway is loopback-only or behind your own access-controlled TLS proxy; otherwise set `auth.mode: "basic"`.
+- The route is mounted on the **Gateway HTTP port**. With `auth.mode: "none"` (the default) anyone who can reach that port can **read** your configured roots — writes are refused (v0.4.7 fail-closed). That is fine when the Gateway is loopback-only or behind your own access-controlled TLS proxy; otherwise set `auth.mode: "basic"`.
 - `openclaw doctor` flags `auth.mode: "none"` as a dangerous flag on purpose.
-- Keep roots narrow. Don't expose `/`. Read-only (`"mode": "ro"`) is the right default for most trees; `rw` enables upload/mkdir/edit for that root.
+- Keep roots narrow. Don't expose `/`. Read-only (`"mode": "ro"`) is the default for the implicit workspace root; `"mode": "rw"` enables upload/mkdir/edit for that root **only when basic auth is configured** (unauthenticated serving is always read-only).
 - Editing is limited to text files under `maxEditBytes` (512 KiB default).
 - The share token (`auth.token`) grants **read-only GET/HEAD** to every configured root — treat it like a low-privilege credential: generate it randomly (`openssl rand -hex 16`), rotate by resetting config, and don't commit generated widgets that embed it. Requests without a valid token still require basic auth.
 - Share links (`/s/…`) and drop portals (`/d/…`) are **capability URLs**: the unguessable 10-char code *is* the credential, reachable even when basic auth is on. That's the point (hand one to someone outside your network) — but it means a leaked link works until it expires or you revoke it. Prefer short `ttl` values and `max` caps; check `/_shares` periodically.
+- Active content (`html`, `htm`, `svg`, `xhtml`) is always served as a download with `Content-Security-Policy: sandbox` and `nosniff`, so a file someone else dropped in a writable root can never execute scripts on your gateway origin.
 
 ## Media gallery widget
 
