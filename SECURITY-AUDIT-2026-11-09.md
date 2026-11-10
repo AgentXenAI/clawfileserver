@@ -21,7 +21,11 @@ Verdict: **suspicious** (serious weaknesses, intent not established). Current re
 - Attack: attacker-placed HTML/SVG executes with the gateway origin (same origin as Control UI).
 - Fix: for active content types (html, htm, svg, xhtml, xml?) on raw/share/listing-adjacent responses: `Content-Disposition: attachment` + `Content-Security-Policy: sandbox; default-src 'none'` + `X-Content-Type-Options: nosniff`. Keep previews for safe types. Apply consistently to raw, share, range, and fallback streaming paths.
 
-## Remediation plan (target v0.4.7, develop on owner-redacted)
+## Remediation plan (target v0.4.7, develop on owner-redacted) — ✅ DONE 2026-11-09
+Shipped as v0.4.7 (owner-redacted `19e4b48`, harness 131/131). Note from rollout: fix 1's
+read-only default broke deployments relying on the implicit rw default — the owner's live
+config now sets `roots: [{workspace, rw}]` explicitly; check for implicit-default
+reliance before shipping fail-closed default changes.
 1. Fail-closed auth default + read-only default root (index.js normalizeConfig).
 2. Single `resolveContained()` realpath helper; swap every containment check to it (core.js).
 3. Active-content headers in `streamFile` + share streaming path.
