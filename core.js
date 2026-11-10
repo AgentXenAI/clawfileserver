@@ -452,7 +452,7 @@ function md(s){
  const inl=t=>t.replace(/\`([^\`]+)\`/g,'<code>$1</code>')
   .replace(/\\*\\*([^*]+)\\*\\*/g,'<strong>$1</strong>')
   .replace(/(^|[^*])\\*([^*\\n]+)\\*/g,'$1<i>$2</i>')
-  .replace(/\\[([^\\]]+)\\]\\((https?:[^)\\s]+)\\)/g,'<a href="$2" rel="noopener">$1</a>');
+  .replace(/\\[([^\\]]+)\\]\\((https?:[^)\\s]+)\\)/g,(m0,txt,href)=>{const safe=href.replace(/[\\x00-\\x1f"]/g,(ch)=>ch==='"'?'&quot;':'');if(!/^https?:/i.test(safe))return m0;return '<a href="'+safe+'" rel="noopener">'+txt+'</a>';});
  const closeL=()=>{if(ul){o.push('</ul>');ul=false}if(ol){o.push('</ol>');ol=false}};
  const flushP=()=>{if(para.length){o.push('<p>'+inl(para.join(' '))+'</p>');para=[]}};
  for(const ln of L){

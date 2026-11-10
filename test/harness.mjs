@@ -381,6 +381,27 @@ ok('move missing source -> 404', r.status === 404);
     try { new Function(script); parses = true; } catch { parses = false; }
     ok('md page inline script parses as valid JS', parses && script.includes('mdview'));
   }
+  {
+    // FIX 2 regression (ClawScan 2026-11-10): hostile md links must not execute JS.
+    // Run the embedded renderer itself in Node with a DOM stub.
+    const script = (html.match(/<script>([\s\S]*?)<\/script>/) || [])[1] || '';
+    let md;
+    try { md = new Function('document', script + '\nreturn md;')({ getElementById: () => ({ addEventListener() {} }) }); } catch { md = null; }
+    ok('md renderer extractable for tests', typeof md === 'function');
+    if (md) {
+      const h1 = md('[x](https://e.com/"onmouseover="alert(1))');
+      const m1 = h1.match(/<a href="([^"]*)" rel="noopener">x<\/a>/);
+      ok('md link: quote-breakout stays inert inside href', !!m1 && !m1[1].includes('"') && m1[1].includes('&quot;'));
+      const h2 = md('[x](https://e.com/%22onmouseover%3D%22alert(1))');
+      ok('md link: encoded quote stays percent-encoded, no handler', h2.includes('%22') && !/onmouseover=/i.test(h2));
+      ok('md link: javascript: never linkified', !md('[x](javascript:alert(1))').includes('<a'));
+      ok('md link: data: never linkified', !md('[x](data:text/html,hi)').includes('<a'));
+      const h5 = md('[x](https://e.com/\u0001y)');
+      ok('md link: control chars stripped from href', h5.includes('href="https://e.com/y"'));
+      ok('md link: malformed link stays literal text', !md('[x](https://e.com/').includes('<a'));
+      ok('md link: normal link still renders', md('[x](https://ok.example/a)').includes('<a href="https://ok.example/a" rel="noopener">x</a>'));
+    }
+  }
 }
 
 // 23. security regressions (v0.4.7 — ClawScan audit 2026-11-09)
