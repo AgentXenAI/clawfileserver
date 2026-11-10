@@ -35,7 +35,7 @@ allowed roots — symlinks are listed and served fine: JSON listing includes the
 - **Every image an agent generates or works on in chat gets at least a symlink in
   the gallery dir**, e.g. `ln -s ../projects/foo/assets/bar.png media/bar.png`.
   Keepsakes go in as real files; symlinks are the minimum for work-in-progress
-  previews. (Owner rule, the owner, 2026-11-08.)
+  previews. (Owner rule, 2026-11-08.)
 - Name symlinks descriptively — the widget displays the link's filename, not the
   target's.
 
@@ -133,7 +133,7 @@ reload time.
   UA token (or an `OpenClaw` UA marker) and switches the detail view to the
   copy-URL fallback (clipboard API + execCommand). Never match bare `Android`:
   mobile browsers viewing the dashboard are web and must get real links
-  (confirmed: OpenClaw Android app UA contains `; wv)`; the owner verified both
+  (confirmed: OpenClaw Android app UA contains `; wv)`; owner verified both
   modes on web + app, 2026-11-08).
   Keep both modes; don't "simplify" the web links into the Android fallback.
 - Previews showing 401 → token type mismatch (number vs string in config) or a

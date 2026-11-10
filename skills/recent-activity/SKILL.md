@@ -28,6 +28,6 @@ The widget auto-refreshes every 60 s, has window + root pickers, stat chips (fil
 
 ## Notes
 
-- The widget sandbox has no same-origin access, so `__BASE__=auto` is what makes it work when the Control UI is served through a reverse proxy (e.g. `owner-redacted`). Verify the result renders from the requesting viewer's perspective; a successful `show_widget` status alone is not rendering proof.
+- The widget sandbox has no same-origin access, so `__BASE__=auto` is what makes it work when the Control UI is served through a reverse proxy (any custom hostname). Verify the result renders from the requesting viewer's perspective; a successful `show_widget` status alone is not rendering proof.
 - `/_recent` scans mtimes across roots; on very large trees keep `hours` small (the scan is capped by `searchScanLimit`).
 - Rebuild and re-pin with the same `name` to update; do not create duplicate tabs.
