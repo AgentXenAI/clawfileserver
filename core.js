@@ -1045,7 +1045,7 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
     try {
       let raw = (req.url || '/');
       // Strip the route prefix. Dedicated vhostnames that proxy us under a bare
-      // hostname (e.g. owner-redacted rewriting ^/(.*)$ -> /clawfileserver/$1)
+      // hostname (e.g. a vhost rewriting ^/(.*)$ -> /clawfileserver/$1)
       // re-add the prefix to our own generated absolute links, so tolerate it
       // appearing more than once.
       while (bp && (raw === bp || raw.startsWith(bp + '/'))) raw = raw.slice(bp.length) || '/';
