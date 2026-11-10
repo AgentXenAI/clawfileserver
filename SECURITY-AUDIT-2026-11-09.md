@@ -37,3 +37,7 @@ reliance before shipping fail-closed default changes.
 - The reference deployment already runs with auth configured; fixes are for ClawHub strangers + defense in depth.
 - ClawHub registry search showed nothing for clawfileserver as of 16:02 — 0.4.4 submission may still be pending scans; consider publishing 0.4.7 once live.
 - Harness currently 131 checks; keep all green.
+
+## History rewrite (2026-11-10)
+
+File-level scrub (feb8ae4) left PII in pre-scrub blobs reachable from main. Full history rewritten with git-filter-repo (8 atomic tokens: operator name variants + hostnames/URLs, replaced in all blobs + commit messages). Force-pushed to Forgejo main+xen-dev; GitHub auto-synced via push mirror. Verified: fresh GitHub clone has 0 hits across all revs; old SHAs unreachable. PR#1 head was already clean. Pre-rewrite bundle kept at /tmp/pre-rewrite.bundle pending owner sign-off.
