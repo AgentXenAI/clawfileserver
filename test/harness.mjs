@@ -472,6 +472,39 @@ ok('move missing source -> 404', r.status === 404);
     ok('drop after dir swapped to escape symlink -> 403', r.status === 403); }
 }
 {
+  // 23b2. share-scope escape via in-root symlinks (ClawScan 2026-11-10)
+  fs.mkdirSync(path.join(rwDir, 'sharebox'));
+  fs.writeFileSync(path.join(rwDir, 'sharebox', 'pub.txt'), 'public\n');
+  fs.mkdirSync(path.join(rwDir, 'secretbox'));
+  fs.writeFileSync(path.join(rwDir, 'secretbox', 'priv.txt'), 'private\n');
+  fs.symlinkSync(path.join(rwDir, 'secretbox'), path.join(rwDir, 'sharebox', 'link-secret'));
+  fs.symlinkSync(path.join(rwDir, 'sharebox', 'pub.txt'), path.join(rwDir, 'sharebox', 'link-inner'));
+  fs.symlinkSync(path.join(rwDir, 'secretbox', 'priv.txt'), path.join(rwDir, 'sharebox', 'link-priv'));
+  fs.mkdirSync(path.join(rwDir, 'sharebox', 'sub'));
+  fs.symlinkSync(path.join(rwDir, 'secretbox'), path.join(rwDir, 'sharebox', 'sub', 'mid'));
+  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/sharebox')}&ttl=1h`, { method: 'POST' });
+  { const shx = await jr.json();
+    r = await fetch(`${base}/cfs/s/${shx.code}/link-secret/priv.txt`);
+    ok('share: symlink escaping share but in root -> 403', r.status === 403);
+    r = await fetch(`${base}/cfs/s/${shx.code}/sub/mid/priv.txt`);
+    ok('share: symlink in intermediate component -> 403', r.status === 403);
+    r = await fetch(`${base}/cfs/s/${shx.code}/link-inner`);
+    ok('share: symlink inside share refused (strict policy)', r.status === 403);
+    r = await fetch(`${base}/cfs/s/${shx.code}/pub.txt`);
+    ok('share: normal file still serves', r.status === 200 && (await r.text()) === 'public\n');
+    const lt = await (await fetch(`${base}/cfs/s/${shx.code}/`)).text();
+    ok('share listing: symlink row leaks no external size', lt.includes('link-priv') && !lt.includes('<td>8 B</td>')); }
+  fs.writeFileSync(path.join(rwDir, 'swapme.txt'), 'orig\n');
+  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/swapme.txt')}&ttl=1h`, { method: 'POST' });
+  { const shw = await jr.json();
+    r = await fetch(`${base}/cfs/s/${shw.code}`);
+    ok('file share serves before swap', r.status === 200);
+    fs.rmSync(path.join(rwDir, 'swapme.txt'));
+    fs.symlinkSync(path.join(rwDir, 'secretbox', 'priv.txt'), path.join(rwDir, 'swapme.txt'));
+    r = await fetch(`${base}/cfs/s/${shw.code}`);
+    ok('file share swapped to in-root symlink -> 403', r.status === 403); }
+}
+{
   // 23c. active content headers (finding 3)
   fs.writeFileSync(path.join(rwDir, 'page.html'), '<script>alert(1)</script>');
   fs.writeFileSync(path.join(rwDir, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>');

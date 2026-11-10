@@ -874,13 +874,49 @@ ${tag}`;
     jsonOut(res, 200, { ok: true, code, status: 'revoked' });
   }
 
+  /**
+   * SECURITY (v0.4.8, ClawScan 2026-11-10): share scope is narrower than root
+   * scope. resolveContained() only guards configured roots, so a symlink inside
+   * a shared dir pointing elsewhere inside the same root passed both the lexical
+   * share check and root containment (share scope escape). Shares get their own
+   * gate: no symlink component at or below the share path (same policy as the
+   * v0.4.7 write-path fix), plus realpath containment against the share
+   * boundary itself. `rel` = decoded segments below the share root (empty for
+   * file shares). Returns an error string, or null when the path is in scope
+   * (missing paths return null so the normal 404 path still applies).
+   */
+  function shareScopeErr(rec, rel) {
+    let shareReal;
+    try {
+      if (fs.lstatSync(rec.path).isSymbolicLink()) return 'symlink components are not allowed in share paths';
+      shareReal = fs.realpathSync(rec.path);
+    } catch (e) {
+      if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return null;
+      return `cannot resolve share path: ${e.code}`;
+    }
+    let cur = rec.path;
+    for (const seg of rel) {
+      cur = path.join(cur, seg);
+      try { if (fs.lstatSync(cur).isSymbolicLink()) return 'symlink components are not allowed in share paths'; }
+      catch { break; } // missing component: normal 404 path handles it
+    }
+    try {
+      const tReal = fs.realpathSync(path.resolve(rec.path, ...rel));
+      if (tReal !== shareReal && !tReal.startsWith(shareReal + path.sep)) return 'outside share';
+    } catch (e) {
+      if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return null;
+      return `cannot resolve share path: ${e.code}`; // ELOOP etc. -> refuse
+    }
+    return null;
+  }
+
   function shareListing(res, bp, rec, rel) {
     let ents;
     try { ents = fs.readdirSync(rec.path, { withFileTypes: true }); }
     catch (e) { return err(res, 500, `cannot read share dir: ${e.code}`); }
     if (!cfg.showHidden) ents = ents.filter((e) => !e.name.startsWith('.'));
     const rows = ents.map((e) => {
-      let st = null; try { st = fs.statSync(path.join(rec.path, e.name)); } catch {}
+      let st = null; try { st = fs.lstatSync(path.join(rec.path, e.name)); } catch {}
       const href = `${bp}/s/${rec.code}/${[...rel, e.name].map(encodeURIComponent).join('/')}`;
       return `<tr><td>${e.isDirectory() ? '📁' : '📄'} <a href="${esc(href)}">${esc(e.name)}</a></td>` +
         `<td>${st && st.isFile() ? fmtSize(st.size) : ''}</td></tr>`;
@@ -898,10 +934,12 @@ ${tag}`;
     const status = statusOf(rec);
     if (status !== 'active') return err(res, 410, `this share link is ${status}`);
     let target;
+    let relSegs = [];
     if (rec.dir) {
       let rel;
       try { rel = parts.map(decodeURIComponent); }
       catch { return err(res, 400, 'bad URL encoding'); }
+      relSegs = rel;
       target = path.resolve(rec.path, ...rel);
       if (target !== rec.path && !target.startsWith(rec.path + '/')) return err(res, 403, 'outside share');
     } else {
@@ -909,6 +947,7 @@ ${tag}`;
       target = rec.path;
     }
     { const g = resolveContained(target); if (g.err) return err(res, 403, g.err); }
+    { const s = shareScopeErr(rec, relSegs); if (s) return err(res, 403, s); }
     let st;
     try { st = fs.statSync(target); } catch { return err(res, 404, 'file no longer exists'); }
     if (st.isDirectory()) {
