@@ -94,7 +94,7 @@ The core (`core.js`) is framework-free — `createClawFileServer(config).handle(
 
 ## License
 
-MIT
+GPL-3.0-or-later. Copyleft — fork it, ship it, sell it, but share the source when you distribute.
 
 ## Contribution flow
 

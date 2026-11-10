@@ -339,6 +339,32 @@ ok('move missing source -> 404', r.status === 404);
   ok('listing search box removed (parked feature)', !(await r.text()).includes('class="srch"'));
 }
 
+// 21b. recent activity feed
+{
+  const fresh = path.join(rwDir, 'recent-new.txt');
+  fs.writeFileSync(fresh, 'now');
+  const stale = path.join(rwDir, 'recent-old.txt');
+  fs.writeFileSync(stale, 'then');
+  const old = Date.now() - 72 * 3600e3;
+  fs.utimesSync(stale, new Date(old), new Date(old));
+  let r = await get(`/cfs/_recent?hours=24`);
+  ok('recent: 200 json', r.status === 200);
+  {
+    const j = await r.json();
+    const names = j.items.map((i) => i.name);
+    ok('recent: fresh file listed', names.includes('recent-new.txt'));
+    ok('recent: stale file excluded', !names.includes('recent-old.txt'));
+    ok('recent: now field present', typeof j.now === 'number');
+    ok('recent: sorted newest first', j.items.every((it, i, a) => i === 0 || a[i - 1].mtime >= it.mtime));
+  }
+  r = await get(`/cfs/_recent?hours=96`);
+  ok('recent: wider window includes stale', (await r.json()).items.some((i) => i.name === 'recent-old.txt'));
+  r = await get(`/cfs/_recent?hours=24&max=1`);
+  ok('recent: max cap honored', (await r.json()).items.length === 1);
+  r = await get(`/cfs/_recent?root=/etc`);
+  ok('recent: out-of-root 403', r.status === 403);
+}
+
 // 22. markdown preview
 {
   fs.writeFileSync(path.join(rwDir, 'doc.md'), '# Title\n\nSome **bold** and `code` and [link](https://example.com)\n\n- item one\n- item two\n\n```\nfenced block\n```\n');
