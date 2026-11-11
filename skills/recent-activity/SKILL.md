@@ -1,3 +1,8 @@
+---
+name: recent-activity
+description: Build a self-refreshing "what changed when" dashboard widget for the Control UI backed by ClawFileServer's /_recent endpoint. Trigger: asked for a recent-activity, recent-changes, or "what happened" dashboard widget.
+---
+
 # Recent Activity Widget — Builder Skill
 
 Builds a self-refreshing "what changed when" dashboard widget for the OpenClaw Control UI, backed by ClawFileServer's `/_recent` endpoint.
