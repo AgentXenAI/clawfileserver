@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.9 — SecretRef support in auth config
+- **New: `auth.password` and `auth.token` now accept an OpenClaw SecretRef object** (`{source: "file"|"env", provider, id}`) in addition to a plain string, so credentials can live outside `openclaw.json` (`secrets audit` plaintext findings → zero). File refs resolve through `secrets.providers.<provider>` from the core config (json mode navigates `id` as `/key/path`); env refs read `process.env`.
+- **Fail closed**: an unresolvable password ref drops the plugin out of basic auth (which forces every root read-only); an unresolvable token ref disables token access. Both log at error level with the reason.
+- Harness: 155 checks (was 146) — 9 new SecretRef cases (file/nested/env/plain/failure paths).
+
 ## 0.4.8 — packaging + security (ClawScan review 2026-11-10)
 - **Fix (critical, packaging): `config.js` was missing from the published 0.4.7 tarball** — `package.json` `files` omitted the newly extracted `config.js`, so ClawHub installs shipped a plugin whose entry-point import failed (could not load for anyone installing from ClawHub). `npm pack --dry-run` now lists all 8 files; packed artifact import smoke-tested.
 - **Fix (High, XSS): markdown preview link rendering** — the embedded `md()` renderer interpolated link URLs into `href="..."` without escaping quotes, so `[x](https://e.com/"onmouseover="…)` executed inline handlers on the gateway origin. Anchors are now built via a replacer that escapes `"` → `&quot;`, strips control chars, and re-checks the `http(s):` allowlist. `javascript:`/`data:` were and remain never-linkified.

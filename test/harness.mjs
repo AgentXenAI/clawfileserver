@@ -535,6 +535,33 @@ ok('move missing source -> 404', r.status === 404);
   ok('safe type unaffected (no attachment on raw md)', r.status === 200 && !r.headers.get('content-disposition'));
 }
 
+// 24. SecretRef resolution in auth.password / auth.token (v0.4.9)
+{
+  const secFile = path.join(tmp, 'secrets.json');
+  fs.writeFileSync(secFile, JSON.stringify({ pw: 'ref-pass-1', nested: { tok: 'ref-token-0123456789' } }));
+  const refApi = {
+    config: { secrets: { providers: { filemain: { source: 'file', path: secFile, mode: 'json' } } } },
+    logger: { info() {}, warn() {}, error() {} },
+  };
+  const cfgRef = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: { source: 'file', provider: 'filemain', id: '/pw' }, token: { source: 'file', provider: 'filemain', id: '/nested/tok' } } }, refApi);
+  ok('secretref: file password resolved', cfgRef.auth.password === 'ref-pass-1');
+  ok('secretref: nested file token resolved', cfgRef.auth.token === 'ref-token-0123456789');
+  ok('secretref: basic auth + rw preserved with refs', cfgRef.auth.mode === 'basic' && cfgRef.roots[0].mode === 'rw');
+  const cfgBad = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: { source: 'file', provider: 'missing', id: '/pw' } } }, refApi);
+  ok('secretref: failed password ref drops to mode none', cfgBad.auth.mode === 'none' && !cfgBad.auth.password);
+  ok('secretref: failed password ref forces ro roots', cfgBad.roots.every((x) => x.mode === 'ro'));
+  const cfgBadTok = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: 'p', token: { source: 'file', provider: 'filemain', id: '/nope' } } }, refApi);
+  ok('secretref: failed token ref drops token, keeps basic auth', !cfgBadTok.auth.token && cfgBadTok.auth.mode === 'basic');
+  process.env.CFS_TEST_SECRET = 'env-secret-1';
+  const cfgEnv = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: { source: 'env', id: 'CFS_TEST_SECRET' } } }, refApi);
+  ok('secretref: env password resolved', cfgEnv.auth.password === 'env-secret-1');
+  const cfgEnvMissing = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: { source: 'env', id: 'CFS_TEST_UNSET' } } }, refApi);
+  ok('secretref: missing env var fails closed', cfgEnvMissing.auth.mode === 'none');
+  delete process.env.CFS_TEST_SECRET;
+  const cfgStr = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: 'plain', token: 'plaintext-token-1' } }, refApi);
+  ok('secretref: plain strings unaffected', cfgStr.auth.password === 'plain' && cfgStr.auth.token === 'plaintext-token-1');
+}
+
 server.close(); authServer.close(); tokServer.close();
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log(`\nAll ${n} checks passed.`);

@@ -17,6 +17,45 @@ function cryptoRandom() {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// Resolve a SecretRef object ({source, provider, id}) to its string value.
+// Mirrors OpenClaw core SecretRef semantics for the `file` and `env` sources,
+// reading provider definitions from the core config (secrets.providers).
+// Plain strings pass through untouched. Returns { ok, value | reason }.
+function resolveSecretRef(value, api) {
+  if (typeof value === 'string' || value == null) return { ok: true, value };
+  if (typeof value !== 'object') return { ok: false, reason: 'must be a string or a {source, provider, id} object' };
+  const { source, provider, id } = value;
+  if (!source || !id) return { ok: false, reason: 'secret reference requires source and id' };
+  if (source === 'env') {
+    const v = process.env[id];
+    return v ? { ok: true, value: v } : { ok: false, reason: `env var "${id}" is not set` };
+  }
+  if (source === 'file') {
+    const p = api.config?.secrets?.providers?.[provider];
+    if (!p || p.source !== 'file' || !p.path) {
+      return { ok: false, reason: `file provider "${provider}" not found under secrets.providers` };
+    }
+    try {
+      const raw = fs.readFileSync(p.path, 'utf8');
+      let cur;
+      if (!p.mode || p.mode === 'json') {
+        cur = JSON.parse(raw);
+        for (const k of String(id).split('/').filter(Boolean)) {
+          if (cur === null || typeof cur !== 'object' || !(k in cur)) throw new Error(`path "${id}" not found in ${p.path}`);
+          cur = cur[k];
+        }
+      } else {
+        cur = raw.trim();
+      }
+      if (typeof cur !== 'string' || !cur) throw new Error(`path "${id}" did not resolve to a non-empty string`);
+      return { ok: true, value: cur };
+    } catch (e) {
+      return { ok: false, reason: `file provider "${provider}" (${p.path}): ${e.message}` };
+    }
+  }
+  return { ok: false, reason: `source "${source}" is not supported here (use "file" or "env")` };
+}
+
 export function normalizeConfig(pluginConfig, api) {
   const c = pluginConfig || {};
   const basePath = (c.basePath || '/clawfileserver').replace(/\/+$/, '');
@@ -26,9 +65,26 @@ export function normalizeConfig(pluginConfig, api) {
   let roots = Array.isArray(c.roots) && c.roots.length > 0
     ? c.roots
     : [{ path: c.workspace || api.config?.agents?.defaults?.workspace || defaultWorkspace(), mode: 'ro' }];
-  let auth = { mode: 'none', ...(c.auth || {}) };
+  const auth = { mode: 'none', ...(c.auth || {}) };
+  // Fail closed on unresolvable secret references: a broken password ref drops
+  // the plugin out of basic auth entirely (which forces every root read-only
+  // below); a broken token ref just disables token access.
+  for (const field of ['password', 'token']) {
+    if (auth[field] && typeof auth[field] === 'object') {
+      const r = resolveSecretRef(auth[field], api);
+      if (r.ok) auth[field] = r.value;
+      else if (field === 'password') {
+        api.logger.error?.(`clawfileserver: auth.password secret reference failed — ${r.reason}; basic auth disabled, all roots forced read-only`);
+        auth.mode = 'none';
+        delete auth.password;
+      } else {
+        api.logger.error?.(`clawfileserver: auth.token secret reference failed — ${r.reason}; share token disabled`);
+        delete auth.token;
+      }
+    }
+  }
   if (auth.mode === 'basic' && (!auth.user || !auth.password)) {
-    auth = { ...auth, user: auth.user || 'admin' };
+    auth.user = auth.user || 'admin';
     if (!auth.password) {
       auth.password = cryptoRandom();
       api.logger.info(
