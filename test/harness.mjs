@@ -381,6 +381,27 @@ ok('move missing source -> 404', r.status === 404);
     try { new Function(script); parses = true; } catch { parses = false; }
     ok('md page inline script parses as valid JS', parses && script.includes('mdview'));
   }
+  {
+    // FIX 2 regression (ClawScan 2026-11-10): hostile md links must not execute JS.
+    // Run the embedded renderer itself in Node with a DOM stub.
+    const script = (html.match(/<script>([\s\S]*?)<\/script>/) || [])[1] || '';
+    let md;
+    try { md = new Function('document', script + '\nreturn md;')({ getElementById: () => ({ addEventListener() {} }) }); } catch { md = null; }
+    ok('md renderer extractable for tests', typeof md === 'function');
+    if (md) {
+      const h1 = md('[x](https://e.com/"onmouseover="alert(1))');
+      const m1 = h1.match(/<a href="([^"]*)" rel="noopener">x<\/a>/);
+      ok('md link: quote-breakout stays inert inside href', !!m1 && !m1[1].includes('"') && m1[1].includes('&quot;'));
+      const h2 = md('[x](https://e.com/%22onmouseover%3D%22alert(1))');
+      ok('md link: encoded quote stays percent-encoded, no handler', h2.includes('%22') && !/onmouseover=/i.test(h2));
+      ok('md link: javascript: never linkified', !md('[x](javascript:alert(1))').includes('<a'));
+      ok('md link: data: never linkified', !md('[x](data:text/html,hi)').includes('<a'));
+      const h5 = md('[x](https://e.com/\u0001y)');
+      ok('md link: control chars stripped from href', h5.includes('href="https://e.com/y"'));
+      ok('md link: malformed link stays literal text', !md('[x](https://e.com/').includes('<a'));
+      ok('md link: normal link still renders', md('[x](https://ok.example/a)').includes('<a href="https://ok.example/a" rel="noopener">x</a>'));
+    }
+  }
 }
 
 // 23. security regressions (v0.4.7 — ClawScan audit 2026-11-09)
@@ -451,6 +472,39 @@ ok('move missing source -> 404', r.status === 404);
     ok('drop after dir swapped to escape symlink -> 403', r.status === 403); }
 }
 {
+  // 23b2. share-scope escape via in-root symlinks (ClawScan 2026-11-10)
+  fs.mkdirSync(path.join(rwDir, 'sharebox'));
+  fs.writeFileSync(path.join(rwDir, 'sharebox', 'pub.txt'), 'public\n');
+  fs.mkdirSync(path.join(rwDir, 'secretbox'));
+  fs.writeFileSync(path.join(rwDir, 'secretbox', 'priv.txt'), 'private\n');
+  fs.symlinkSync(path.join(rwDir, 'secretbox'), path.join(rwDir, 'sharebox', 'link-secret'));
+  fs.symlinkSync(path.join(rwDir, 'sharebox', 'pub.txt'), path.join(rwDir, 'sharebox', 'link-inner'));
+  fs.symlinkSync(path.join(rwDir, 'secretbox', 'priv.txt'), path.join(rwDir, 'sharebox', 'link-priv'));
+  fs.mkdirSync(path.join(rwDir, 'sharebox', 'sub'));
+  fs.symlinkSync(path.join(rwDir, 'secretbox'), path.join(rwDir, 'sharebox', 'sub', 'mid'));
+  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/sharebox')}&ttl=1h`, { method: 'POST' });
+  { const shx = await jr.json();
+    r = await fetch(`${base}/cfs/s/${shx.code}/link-secret/priv.txt`);
+    ok('share: symlink escaping share but in root -> 403', r.status === 403);
+    r = await fetch(`${base}/cfs/s/${shx.code}/sub/mid/priv.txt`);
+    ok('share: symlink in intermediate component -> 403', r.status === 403);
+    r = await fetch(`${base}/cfs/s/${shx.code}/link-inner`);
+    ok('share: symlink inside share refused (strict policy)', r.status === 403);
+    r = await fetch(`${base}/cfs/s/${shx.code}/pub.txt`);
+    ok('share: normal file still serves', r.status === 200 && (await r.text()) === 'public\n');
+    const lt = await (await fetch(`${base}/cfs/s/${shx.code}/`)).text();
+    ok('share listing: symlink row leaks no external size', lt.includes('link-priv') && !lt.includes('<td>8 B</td>')); }
+  fs.writeFileSync(path.join(rwDir, 'swapme.txt'), 'orig\n');
+  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/swapme.txt')}&ttl=1h`, { method: 'POST' });
+  { const shw = await jr.json();
+    r = await fetch(`${base}/cfs/s/${shw.code}`);
+    ok('file share serves before swap', r.status === 200);
+    fs.rmSync(path.join(rwDir, 'swapme.txt'));
+    fs.symlinkSync(path.join(rwDir, 'secretbox', 'priv.txt'), path.join(rwDir, 'swapme.txt'));
+    r = await fetch(`${base}/cfs/s/${shw.code}`);
+    ok('file share swapped to in-root symlink -> 403', r.status === 403); }
+}
+{
   // 23c. active content headers (finding 3)
   fs.writeFileSync(path.join(rwDir, 'page.html'), '<script>alert(1)</script>');
   fs.writeFileSync(path.join(rwDir, 'icon.svg'), '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>');
@@ -479,6 +533,33 @@ ok('move missing source -> 404', r.status === 404);
       && (r.headers.get('content-security-policy') || '').includes('sandbox')); }
   r = await get(`/cfs${rwDir}/note.md?raw=1`);
   ok('safe type unaffected (no attachment on raw md)', r.status === 200 && !r.headers.get('content-disposition'));
+}
+
+// 24. SecretRef resolution in auth.password / auth.token (v0.4.9)
+{
+  const secFile = path.join(tmp, 'secrets.json');
+  fs.writeFileSync(secFile, JSON.stringify({ pw: 'ref-pass-1', nested: { tok: 'ref-token-0123456789' } }));
+  const refApi = {
+    config: { secrets: { providers: { filemain: { source: 'file', path: secFile, mode: 'json' } } } },
+    logger: { info() {}, warn() {}, error() {} },
+  };
+  const cfgRef = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: { source: 'file', provider: 'filemain', id: '/pw' }, token: { source: 'file', provider: 'filemain', id: '/nested/tok' } } }, refApi);
+  ok('secretref: file password resolved', cfgRef.auth.password === 'ref-pass-1');
+  ok('secretref: nested file token resolved', cfgRef.auth.token === 'ref-token-0123456789');
+  ok('secretref: basic auth + rw preserved with refs', cfgRef.auth.mode === 'basic' && cfgRef.roots[0].mode === 'rw');
+  const cfgBad = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: { source: 'file', provider: 'missing', id: '/pw' } } }, refApi);
+  ok('secretref: failed password ref drops to mode none', cfgBad.auth.mode === 'none' && !cfgBad.auth.password);
+  ok('secretref: failed password ref forces ro roots', cfgBad.roots.every((x) => x.mode === 'ro'));
+  const cfgBadTok = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: 'p', token: { source: 'file', provider: 'filemain', id: '/nope' } } }, refApi);
+  ok('secretref: failed token ref drops token, keeps basic auth', !cfgBadTok.auth.token && cfgBadTok.auth.mode === 'basic');
+  process.env.CFS_TEST_SECRET = 'env-secret-1';
+  const cfgEnv = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: { source: 'env', id: 'CFS_TEST_SECRET' } } }, refApi);
+  ok('secretref: env password resolved', cfgEnv.auth.password === 'env-secret-1');
+  const cfgEnvMissing = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: { source: 'env', id: 'CFS_TEST_UNSET' } } }, refApi);
+  ok('secretref: missing env var fails closed', cfgEnvMissing.auth.mode === 'none');
+  delete process.env.CFS_TEST_SECRET;
+  const cfgStr = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: 'plain', token: 'plaintext-token-1' } }, refApi);
+  ok('secretref: plain strings unaffected', cfgStr.auth.password === 'plain' && cfgStr.auth.token === 'plaintext-token-1');
 }
 
 server.close(); authServer.close(); tokServer.close();

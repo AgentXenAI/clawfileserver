@@ -1,6 +1,6 @@
 {
   "name": "clawfileserver",
-  "version": "0.4.7",
+  "version": "0.4.9",
   "description": "OpenClaw plugin: browse, preview, and edit files over HTTP on the Gateway port, with a built-in text editor and conflict-safe saves",
   "type": "module",
   "license": "GPL-3.0-or-later",
@@ -13,7 +13,7 @@
     "url": "https://github.com/AgentXenAI/clawfileserver/issues"
   },
   "keywords": ["openclaw", "openclaw-plugin", "file-browser", "file-editor", "webdav-lite"],
-  "files": ["index.js", "core.js", "openclaw.plugin.json", "README.md", "LICENSE", "assets/icons/cfs-crab-folder-transparent.svg"],
+  "files": ["index.js", "config.js", "core.js", "openclaw.plugin.json", "README.md", "LICENSE", "assets/icons/cfs-crab-folder-transparent.svg"],
   "dependencies": {},
   "peerDependencies": {
     "openclaw": ">=2026.1.0"

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.9 — SecretRef support in auth config
+- **New: `auth.password` and `auth.token` now accept an OpenClaw SecretRef object** (`{source: "file"|"env", provider, id}`) in addition to a plain string, so credentials can live outside `openclaw.json` (`secrets audit` plaintext findings → zero). File refs resolve through `secrets.providers.<provider>` from the core config (json mode navigates `id` as `/key/path`); env refs read `process.env`.
+- **Fail closed**: an unresolvable password ref drops the plugin out of basic auth (which forces every root read-only); an unresolvable token ref disables token access. Both log at error level with the reason.
+- Harness: 155 checks (was 146) — 9 new SecretRef cases (file/nested/env/plain/failure paths).
+
+## 0.4.8 — packaging + security (ClawScan review 2026-11-10)
+- **Fix (critical, packaging): `config.js` was missing from the published 0.4.7 tarball** — `package.json` `files` omitted the newly extracted `config.js`, so ClawHub installs shipped a plugin whose entry-point import failed (could not load for anyone installing from ClawHub). `npm pack --dry-run` now lists all 8 files; packed artifact import smoke-tested.
+- **Fix (High, XSS): markdown preview link rendering** — the embedded `md()` renderer interpolated link URLs into `href="..."` without escaping quotes, so `[x](https://e.com/"onmouseover="…)` executed inline handlers on the gateway origin. Anchors are now built via a replacer that escapes `"` → `&quot;`, strips control chars, and re-checks the `http(s):` allowlist. `javascript:`/`data:` were and remain never-linkified.
+- **Fix (High, scope escape): share symlinks** — share paths were checked lexically against the share dir while realpath containment only guarded configured roots, so a symlink inside a shared dir pointing elsewhere *inside the same root* escaped the share scope. New `shareScopeErr()` gate on every share GET (listing + download): symlink components at/below the share path are refused and realpath containment is enforced against the share boundary itself; share listings `lstat` entries (no external size leak). File shares swapped to symlinks after creation are refused.
+- Harness: 146 checks (was 131) — regression tests per finding, each verified to fail against the pre-fix code.
+
 ## 0.4.7 — security (ClawScan audit 2026-11-09)
 - **Fail-closed defaults**: default root is now read-only; without `auth.mode="basic"` every root is forced read-only and all mutations (PUT/mkdir/delete/move/drop) are refused with 403. The share token remains read-only by design. Config normalization moved to `config.js` (unit-testable).
 - **Symlink containment**: one `resolveContained()` realpath helper gates every path operation (reads, writes, shares, drops, mkdir, move, delete, search, zip, recent). A symlink component inside a root can no longer point outside it; write paths additionally refuse an existing symlink at the target.

@@ -2,9 +2,13 @@
   "id": "clawfileserver",
   "name": "ClawFileServer",
   "description": "Browse, preview, and edit files over HTTP on the Gateway port — directory listings, media previews, and a conflict-safe text editor.",
-  "version": "0.4.7",
-  "categories": ["documents-files"],
-  "skills": ["skills"],
+  "version": "0.4.9",
+  "categories": [
+    "documents-files"
+  ],
+  "skills": [
+    "skills"
+  ],
   "activation": {
     "onStartup": true
   },
@@ -23,11 +27,24 @@
         "items": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["path"],
+          "required": [
+            "path"
+          ],
           "properties": {
-            "path": { "type": "string", "minLength": 1 },
-            "mode": { "enum": ["ro", "rw"], "default": "ro" },
-            "label": { "type": "string" }
+            "path": {
+              "type": "string",
+              "minLength": 1
+            },
+            "mode": {
+              "enum": [
+                "ro",
+                "rw"
+              ],
+              "default": "ro"
+            },
+            "label": {
+              "type": "string"
+            }
           }
         },
         "default": [],
@@ -37,10 +54,79 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "mode": { "enum": ["none", "basic"], "default": "none" },
-          "user": { "type": "string" },
-          "password": { "type": "string" },
-          "token": { "type": "string", "minLength": 12, "description": "Optional read-only share token. GET/HEAD requests with ?t=<token> or x-cfs-token header bypass basic auth (reads only). For dashboard widgets and preview links." }
+          "mode": {
+            "enum": [
+              "none",
+              "basic"
+            ],
+            "default": "none"
+          },
+          "user": {
+            "type": "string"
+          },
+          "password": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "source",
+                  "id"
+                ],
+                "properties": {
+                  "source": {
+                    "enum": [
+                      "file",
+                      "env"
+                    ]
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "description": "OpenClaw SecretRef resolved at plugin load: file refs read secrets.providers.<provider> (json mode navigates id as /key/path); env refs read process.env.<id>."
+              }
+            ],
+            "description": "Basic-auth password: plain string or SecretRef object (resolved at load; a failed ref disables basic auth and forces all roots read-only)."
+          },
+          "token": {
+            "description": "Optional read-only share token: plain string (>=12 chars) or SecretRef object (resolved at load; a failed ref disables token access). GET/HEAD with ?t=<token> or x-cfs-token bypasses basic auth (reads only).",
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 12
+              },
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "source",
+                  "id"
+                ],
+                "properties": {
+                  "source": {
+                    "enum": [
+                      "file",
+                      "env"
+                    ]
+                  },
+                  "provider": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "description": "OpenClaw SecretRef resolved at plugin load: file refs read secrets.providers.<provider> (json mode navigates id as /key/path); env refs read process.env.<id>."
+              }
+            ]
+          }
         },
         "description": "Route-level auth. 'none' relies on Gateway/network protection; 'basic' adds HTTP basic auth (a password is generated and logged once if unset)."
       },
@@ -48,19 +134,59 @@
         "type": "string",
         "description": "Default root used when 'roots' is empty. Defaults to the OpenClaw workspace directory."
       },
-      "maxPreviewBytes": { "type": "integer", "minimum": 1024, "maximum": 16777216, "default": 1048576 },
-      "maxEditBytes": { "type": "integer", "minimum": 1024, "maximum": 8388608, "default": 524288 },
-      "maxListEntries": { "type": "integer", "minimum": 10, "maximum": 50000, "default": 5000 },
-      "showHidden": { "type": "boolean", "default": false },
+      "maxPreviewBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 16777216,
+        "default": 1048576
+      },
+      "maxEditBytes": {
+        "type": "integer",
+        "minimum": 1024,
+        "maximum": 8388608,
+        "default": 524288
+      },
+      "maxListEntries": {
+        "type": "integer",
+        "minimum": 10,
+        "maximum": 50000,
+        "default": 5000
+      },
+      "showHidden": {
+        "type": "boolean",
+        "default": false
+      },
       "shares": {
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "enabled": { "type": "boolean", "default": true, "description": "Expiring share links (/s/<code>) and drop portals (/d/<code>). The capability code is the credential; creation/revoke always require basic auth." },
-          "stateFile": { "type": "string", "description": "JSON state file for share/drop records. Defaults to <state-dir>/clawfileserver/shares.json." },
-          "defaultTtl": { "type": "string", "pattern": "^[0-9]+[smhd]$", "default": "24h", "description": "Link lifetime when ?ttl= is omitted (e.g. 90m, 24h, 7d)." },
-          "maxTtl": { "type": "string", "pattern": "^[0-9]+[smhd]$", "default": "30d", "description": "Hard ceiling for any requested ttl." },
-          "maxUploadBytes": { "type": "integer", "minimum": 1024, "default": 2147483648, "description": "Per-file upload limit for drop portals (streamed; memory-safe)." }
+          "enabled": {
+            "type": "boolean",
+            "default": true,
+            "description": "Expiring share links (/s/<code>) and drop portals (/d/<code>). The capability code is the credential; creation/revoke always require basic auth."
+          },
+          "stateFile": {
+            "type": "string",
+            "description": "JSON state file for share/drop records. Defaults to <state-dir>/clawfileserver/shares.json."
+          },
+          "defaultTtl": {
+            "type": "string",
+            "pattern": "^[0-9]+[smhd]$",
+            "default": "24h",
+            "description": "Link lifetime when ?ttl= is omitted (e.g. 90m, 24h, 7d)."
+          },
+          "maxTtl": {
+            "type": "string",
+            "pattern": "^[0-9]+[smhd]$",
+            "default": "30d",
+            "description": "Hard ceiling for any requested ttl."
+          },
+          "maxUploadBytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "default": 2147483648,
+            "description": "Per-file upload limit for drop portals (streamed; memory-safe)."
+          }
         },
         "description": "Expiring share links and upload drop portals."
       }
@@ -68,13 +194,22 @@
   },
   "configContracts": {
     "dangerousFlags": [
-      { "path": "auth.mode", "equals": "none" }
+      {
+        "path": "auth.mode",
+        "equals": "none"
+      }
     ],
     "secretInputs": {
       "bundledDefaultEnabled": false,
       "paths": [
-        { "path": "auth.password", "expected": "string" },
-        { "path": "auth.token", "expected": "string" }
+        {
+          "path": "auth.password",
+          "expected": "string"
+        },
+        {
+          "path": "auth.token",
+          "expected": "string"
+        }
       ]
     }
   }
