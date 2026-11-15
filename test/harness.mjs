@@ -517,11 +517,12 @@ ok('move missing source -> 404', r.status === 404);
     && /attachment/.test(r.headers.get('content-disposition') || '')
     && (r.headers.get('content-security-policy') || '').includes('sandbox'));
   r = await get(`/cfs${rwDir}/icon.svg?raw=1`);
-  ok('raw svg: attachment + sandbox + nosniff', /attachment/.test(r.headers.get('content-disposition') || '')
+  ok('raw svg: inline + sandbox + nosniff', !r.headers.get('content-disposition')
     && (r.headers.get('content-security-policy') || '').includes('sandbox')
     && r.headers.get('x-content-type-options') === 'nosniff');
   r = await get(`/cfs${rwDir}/icon.svg`);
-  ok('svg default: no inline preview, downloads', /attachment/.test(r.headers.get('content-disposition') || ''));
+  ok('svg default: inline render (sandboxed)', r.status === 200 && !r.headers.get('content-disposition')
+    && (r.headers.get('content-security-policy') || '').includes('sandbox'));
   r = await get(`/cfs${rwDir}/page.html`);
   { const t = await r.text();
     ok('html text preview stays escaped', r.status === 200 && t.includes('&lt;script&gt;') && !t.includes('<script>alert')); }

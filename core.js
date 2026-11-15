@@ -392,11 +392,15 @@ addEventListener('keydown',(e)=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preve
       'Access-Control-Allow-Origin': '*',
     };
     if (ACTIVE.has(ext)) {
-      // SECURITY: active content is forced to download and is sandboxed even if
-      // opened; applies to raw, share, range, and fallback streaming alike.
-      headers['Content-Disposition'] = `attachment; filename="${path.basename(p).replace(/"/g, '')}"`;
+      // SECURITY: active content is sandboxed even if opened inline; applies to
+      // raw, share, range, and fallback streaming alike. Under CSP sandbox
+      // (no allow-scripts) an SVG's scripts are inert, so SVG may render inline;
+      // HTML/XHTML is additionally forced to download.
       headers['Content-Security-Policy'] = "sandbox; default-src 'none'";
       headers['X-Content-Type-Options'] = 'nosniff';
+      if (ext !== '.svg') {
+        headers['Content-Disposition'] = `attachment; filename="${path.basename(p).replace(/"/g, '')}"`;
+      }
     } else if (asDownload) {
       headers['Content-Disposition'] = `attachment; filename="${path.basename(p).replace(/"/g, '')}"`;
     }
