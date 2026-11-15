@@ -702,9 +702,43 @@ ${tag}`;
     jsonOut(res, 200, { hours, now: Date.now(), cutoff: Math.round(cutoff), scanned, truncated, count: Math.min(items.length, max), items: items.slice(0, max) });
   }
 
+  /**
+   * Fetch-metadata CSRF guard (ClawScan 2026-11-15, CWE-352): browsers always
+   * send Origin on cross-site POSTs; cross-origin form posts with cached basic
+   * creds are refused. Non-browser API clients (curl, scripts) send no Origin
+   * and are allowed — they cannot be CSRF'd. Public drop uploads are exempt
+   * (no credential involved, cross-origin by design).
+   */
+  function mutationOriginOk(req) {
+    const o = req.headers.origin;
+    if (o === undefined) return true;
+    try { return new URL(o).host.toLowerCase() === String(req.headers.host || '').toLowerCase(); }
+    catch { return false; }
+  }
+
+  /**
+   * Full-match glob for search queries: only * and ?, case-insensitive.
+   * Two-pointer matcher — O(n*m) worst case, no regex backtracking blowup
+   * (ClawScan 2026-11-15, CWE-1333).
+   */
+  function globMatch(pattern, name) {
+    const p = pattern.toLowerCase(), s = name.toLowerCase();
+    let pi = 0, si = 0, star = -1, mark = 0;
+    while (si < s.length) {
+      if (pi < p.length && (p[pi] === '?' || p[pi] === s[si])) { pi++; si++; }
+      else if (pi < p.length && p[pi] === '*') { star = pi++; mark = si; }
+      else if (star !== -1) { pi = star + 1; si = ++mark; }
+      else return false;
+    }
+    while (pi < p.length && p[pi] === '*') pi++;
+    return pi === p.length;
+  }
+
   function handleSearch(res, bp, qp) {
     const q = String(qp.get('q') || '').trim();
     if (!q) return err(res, 400, '?q=<search term or *glob*> required');
+    if (q.length > 128) return err(res, 400, 'query too long (max 128 chars)');
+    if ((q.match(/[*?]/g) || []).length > 16) return err(res, 400, 'too many wildcards (max 16)');
     const rp = path.resolve('/' + String(qp.get('root') || '/').replace(/^\/+/, ''));
     { const g = resolveContained(rp); if (g.err) return err(res, 403, g.err); }
     try { if (!fs.statSync(rp).isDirectory()) throw new Error('notdir'); }
@@ -713,9 +747,8 @@ ${tag}`;
     const max = Math.min(1000, Math.max(1, parseInt(qp.get('max') || '200', 10) || 200));
     const scanCap = cfg.searchScanLimit || 20000;
     const glob = /[*?]/.test(q);
-    const rx = glob ? new RegExp('^' + q.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i') : null;
     const ql = q.toLowerCase();
-    const nameHit = (n) => (rx ? rx.test(n) : n.toLowerCase().includes(ql));
+    const nameHit = (n) => (glob ? globMatch(q, n) : n.toLowerCase().includes(ql));
     const matches = [];
     let scanned = 0, truncated = false;
     const stack = [[rp, '']];
@@ -756,6 +789,7 @@ ${tag}`;
   }
 
   function basicAuthed(req) {
+    if (auth.passwordFailed) return false; // poisoned credential: refuse everything
     const h = req.headers.authorization || '';
     if (!h.startsWith('Basic ')) return false;
     const raw = Buffer.from(h.slice(6), 'base64').toString('utf8');
@@ -1149,6 +1183,9 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
 
       if (p === '/' || p === '') return sendHTML(res, 200, rootsIndex(bp));
 
+      if (req.method === 'PUT' || (req.method === 'POST' && /^\/(_mkdir|_delete|_move|_share)/.test(p))) {
+        if (!mutationOriginOk(req)) return err(res, 403, 'cross-origin mutation refused (Origin does not match Host)');
+      }
       if (req.method === 'PUT') {
         const rp = path.resolve(p);
         const gate = writeGate(rp);
