@@ -246,7 +246,7 @@ ${FAVICON_URI ? `<link rel="icon" type="image/png" href="${FAVICON_URI}">` : ''}
       'Content-Length': buf.length,
       'X-Content-Type-Options': 'nosniff',
       'Access-Control-Allow-Origin': '*',
-      'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'",
+      'Content-Security-Policy': "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; media-src 'self'; connect-src 'self'; form-action 'none'; base-uri 'none'",
     });
     res.end(buf);
   }
