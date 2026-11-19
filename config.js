@@ -66,16 +66,18 @@ export function normalizeConfig(pluginConfig, api) {
     ? c.roots
     : [{ path: c.workspace || api.config?.agents?.defaults?.workspace || defaultWorkspace(), mode: 'ro' }];
   const auth = { mode: 'none', ...(c.auth || {}) };
-  // Fail closed on unresolvable secret references: a broken password ref drops
-  // the plugin out of basic auth entirely (which forces every root read-only
-  // below); a broken token ref just disables token access.
+  // Fail closed on unresolvable secret references: a broken password ref keeps
+  // basic mode but poisons the credential (passwordFailed) so EVERY request is
+  // refused with 401 until the secret resolves — never a silent downgrade to
+  // anonymous read-only serving (ClawScan 2026-11-15, CWE-636). A broken token
+  // ref just disables the optional share token.
   for (const field of ['password', 'token']) {
     if (auth[field] && typeof auth[field] === 'object') {
       const r = resolveSecretRef(auth[field], api);
       if (r.ok) auth[field] = r.value;
       else if (field === 'password') {
-        api.logger.error?.(`clawfileserver: auth.password secret reference failed — ${r.reason}; basic auth disabled, all roots forced read-only`);
-        auth.mode = 'none';
+        api.logger.error?.(`clawfileserver: auth.password secret reference failed — ${r.reason}; refusing all requests until the secret resolves`);
+        auth.passwordFailed = true;
         delete auth.password;
       } else {
         api.logger.error?.(`clawfileserver: auth.token secret reference failed — ${r.reason}; share token disabled`);
@@ -83,7 +85,7 @@ export function normalizeConfig(pluginConfig, api) {
       }
     }
   }
-  if (auth.mode === 'basic' && (!auth.user || !auth.password)) {
+  if (auth.mode === 'basic' && !auth.passwordFailed && (!auth.user || !auth.password)) {
     auth.user = auth.user || 'admin';
     if (!auth.password) {
       auth.password = cryptoRandom();

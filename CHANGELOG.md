@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.11 — ClawScan 2026-11-15 audit fixes
+- **Fix (High, CWE-636): a failed `auth.password` SecretRef no longer downgrades to anonymous read-only.** Previously an unresolvable secret set `auth.mode='none'` (reads became public, only writes were protected). Now the plugin stays in basic mode with a poisoned credential: every request is refused 401 until the secret resolves, and no fallback password is generated. A failed token ref still just disables the optional token.
+- **Fix (Medium, CWE-352): CSRF guard on mutations.** PUT and the `_mkdir`/`_delete`/`_move`/`_share` POSTs now require `Origin` to match `Host` when an `Origin` header is present (browsers always send one on cross-site posts), so a cross-origin form with cached basic credentials is refused 403. Origin-less API clients (curl, scripts) are unaffected; public drop uploads stay cross-origin by design.
+- **Fix (Medium, CWE-1333): search globs can no longer blow up the event loop.** The glob→RegExp conversion (catastrophic backtracking on patterns like `*?*?*?...Z`) is replaced by a linear two-pointer matcher (O(n·m), no backtracking), with query length ≤128 and ≤16 wildcards as defense in depth. Glob semantics unchanged (full-match, `?` = one char).
+- Harness: 163 checks (was 155) — poisoned-ref 401 tests, cross-origin/same-origin mutation tests, wildcard and length bounds, adversarial-glob timing.
+
+## 0.4.10 — SVG renders inline (sandboxed)
+- **Change: `.svg` is served inline again.** The 0.4.7 blanket `Content-Disposition: attachment` on active content made SVG images undisplayable in browsers (forced download). SVG now renders inline while keeping `Content-Security-Policy: sandbox; default-src 'none'` + `nosniff` — under CSP sandbox (no `allow-scripts`) an SVG's scripts are inert and external fetches are blocked, which is the standard same-origin untrusted-SVG mitigation. HTML/XHTML remain forced-download + sandboxed (unchanged).
+- Harness: 155 checks — SVG assertions flipped to inline+expected-headers; HTML/share/safe-type cases unchanged.
+
 ## 0.4.9 — SecretRef support in auth config
 - **New: `auth.password` and `auth.token` now accept an OpenClaw SecretRef object** (`{source: "file"|"env", provider, id}`) in addition to a plain string, so credentials can live outside `openclaw.json` (`secrets audit` plaintext findings → zero). File refs resolve through `secrets.providers.<provider>` from the core config (json mode navigates `id` as `/key/path`); env refs read `process.env`.
 - **Fail closed**: an unresolvable password ref drops the plugin out of basic auth (which forces every root read-only); an unresolvable token ref disables token access. Both log at error level with the reason.

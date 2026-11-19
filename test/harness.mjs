@@ -517,11 +517,12 @@ ok('move missing source -> 404', r.status === 404);
     && /attachment/.test(r.headers.get('content-disposition') || '')
     && (r.headers.get('content-security-policy') || '').includes('sandbox'));
   r = await get(`/cfs${rwDir}/icon.svg?raw=1`);
-  ok('raw svg: attachment + sandbox + nosniff', /attachment/.test(r.headers.get('content-disposition') || '')
+  ok('raw svg: inline + sandbox + nosniff', !r.headers.get('content-disposition')
     && (r.headers.get('content-security-policy') || '').includes('sandbox')
     && r.headers.get('x-content-type-options') === 'nosniff');
   r = await get(`/cfs${rwDir}/icon.svg`);
-  ok('svg default: no inline preview, downloads', /attachment/.test(r.headers.get('content-disposition') || ''));
+  ok('svg default: inline render (sandboxed)', r.status === 200 && !r.headers.get('content-disposition')
+    && (r.headers.get('content-security-policy') || '').includes('sandbox'));
   r = await get(`/cfs${rwDir}/page.html`);
   { const t = await r.text();
     ok('html text preview stays escaped', r.status === 200 && t.includes('&lt;script&gt;') && !t.includes('<script>alert')); }
@@ -548,18 +549,50 @@ ok('move missing source -> 404', r.status === 404);
   ok('secretref: nested file token resolved', cfgRef.auth.token === 'ref-token-0123456789');
   ok('secretref: basic auth + rw preserved with refs', cfgRef.auth.mode === 'basic' && cfgRef.roots[0].mode === 'rw');
   const cfgBad = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: { source: 'file', provider: 'missing', id: '/pw' } } }, refApi);
-  ok('secretref: failed password ref drops to mode none', cfgBad.auth.mode === 'none' && !cfgBad.auth.password);
-  ok('secretref: failed password ref forces ro roots', cfgBad.roots.every((x) => x.mode === 'ro'));
+  ok('secretref: failed password ref keeps basic + poisons credential', cfgBad.auth.mode === 'basic' && cfgBad.auth.passwordFailed === true && !cfgBad.auth.password);
+  ok('secretref: failed password ref does not generate a fallback password', !cfgBad.auth.password);
   const cfgBadTok = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: 'p', token: { source: 'file', provider: 'filemain', id: '/nope' } } }, refApi);
   ok('secretref: failed token ref drops token, keeps basic auth', !cfgBadTok.auth.token && cfgBadTok.auth.mode === 'basic');
   process.env.CFS_TEST_SECRET = 'env-secret-1';
   const cfgEnv = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: { source: 'env', id: 'CFS_TEST_SECRET' } } }, refApi);
   ok('secretref: env password resolved', cfgEnv.auth.password === 'env-secret-1');
   const cfgEnvMissing = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: { source: 'env', id: 'CFS_TEST_UNSET' } } }, refApi);
-  ok('secretref: missing env var fails closed', cfgEnvMissing.auth.mode === 'none');
+  ok('secretref: missing env var fails closed (basic + poisoned)', cfgEnvMissing.auth.mode === 'basic' && cfgEnvMissing.auth.passwordFailed === true);
   delete process.env.CFS_TEST_SECRET;
   const cfgStr = normalizeConfig({ auth: { mode: 'basic', user: 'u', password: 'plain', token: 'plaintext-token-1' } }, refApi);
   ok('secretref: plain strings unaffected', cfgStr.auth.password === 'plain' && cfgStr.auth.token === 'plaintext-token-1');
+  {
+    const poisonSrv = createClawFileServer(normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: { source: 'file', provider: 'missing', id: '/pw' } }, shares: { stateFile: path.join(tmp, 'state-poison.json') } }, refApi));
+    const ps = http.createServer((req, res) => poisonSrv.handle(req, res, '/cfs'));
+    await new Promise((r2) => ps.listen(0, '127.0.0.1', r2));
+    const pr = await fetch(`http://127.0.0.1:${ps.address().port}/cfs/`);
+    ok('secretref: poisoned server 401s anonymous reads', pr.status === 401);
+    const pr2 = await fetch(`http://127.0.0.1:${ps.address().port}/cfs/`, { headers: { Authorization: 'Basic ' + Buffer.from('u:').toString('base64') } });
+    ok('secretref: poisoned server 401s any credentials', pr2.status === 401);
+    ps.close();
+  }
+}
+
+// 25. CSRF origin guard + search glob bounds (ClawScan 2026-11-15)
+{
+  fs.writeFileSync(path.join(rwDir, 'csrf-bait.txt'), 'x');
+  const delUrl = `${abase2}/cfs/_delete?path=${encodeURIComponent(rwDir + '/csrf-bait.txt')}`;
+  r = await fetch(delUrl, { method: 'POST', headers: { ...BAUTH, Origin: 'https://evil.example' } });
+  ok('csrf: cross-origin mutation with valid creds refused', r.status === 403 && fs.existsSync(path.join(rwDir, 'csrf-bait.txt')));
+  r = await fetch(delUrl, { method: 'POST', headers: { ...BAUTH, Origin: `http://127.0.0.1:${authServer.address().port}` } });
+  ok('csrf: same-origin mutation allowed', r.status === 201 && !fs.existsSync(path.join(rwDir, 'csrf-bait.txt')));
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=${encodeURIComponent('*?*?*?*?*?*?*?*?*?*?*?*?*?*?*?*?*Z')}`);
+  ok('search: >16 wildcards refused', r.status === 400 && (await r.text()).includes('wildcards'));
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=${'x'.repeat(200)}`);
+  ok('search: overlong query refused', r.status === 400);
+  fs.writeFileSync(path.join(rwDir, 'a'.repeat(200) + '.txt'), 'x');
+  const t0 = Date.now();
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=${encodeURIComponent('*?*?*?*?*?*?*?*Z')}`);
+  ok('search: adversarial glob bounded (linear matcher)', r.status === 200 && Date.now() - t0 < 3000);
+  fs.unlinkSync(path.join(rwDir, 'a'.repeat(200) + '.txt'));
+  r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=${encodeURIComponent('fi?d*e*YZ*1')}`);
+  { const j = await r.json().catch(() => ({}));
+    ok('search: glob semantics unchanged (full-match, ? = one char)', r.status === 200 && j.results?.some((x) => x.name === 'findme-XYZ-notes-1.txt') !== false); }
 }
 
 server.close(); authServer.close(); tokServer.close();
