@@ -2,7 +2,7 @@
   "id": "clawfileserver",
   "name": "ClawFileServer",
   "description": "Browse, preview, and edit files over HTTP on the Gateway port — directory listings, media previews, and a conflict-safe text editor.",
-  "version": "0.4.15",
+  "version": "0.4.17",
   "categories": [
     "documents-files"
   ],
@@ -48,7 +48,7 @@
           }
         },
         "default": [],
-        "description": "Directory trees to expose. Empty defaults to the agent workspace in read-write mode. mode=rw enables upload, mkdir, and editing."
+        "description": "Directory trees to expose. Empty defaults to the agent workspace (forced read-only unless basic auth is configured). mode=rw enables upload, mkdir, and editing only with basic auth."
       },
       "auth": {
         "type": "object",
@@ -56,10 +56,11 @@
         "properties": {
           "mode": {
             "enum": [
+              "locked",
               "none",
               "basic"
             ],
-            "default": "none"
+            "default": "locked"
           },
           "user": {
             "type": "string"
@@ -93,7 +94,7 @@
                 "description": "OpenClaw SecretRef resolved at plugin load: file refs read secrets.providers.<provider> (json mode navigates id as /key/path); env refs read process.env.<id>."
               }
             ],
-            "description": "Basic-auth password: plain string or SecretRef object (resolved at load; a failed ref disables basic auth and forces all roots read-only)."
+            "description": "Basic-auth password: plain string or SecretRef object (resolved at load; a failed ref makes the server refuse every request until the secret resolves — fail-closed, never a silent downgrade to anonymous)."
           },
           "token": {
             "description": "Optional read-only share token: plain string (>=12 chars) or SecretRef object (resolved at load; a failed ref disables token access). GET/HEAD with ?t=<token> or x-cfs-token bypasses basic auth (reads only).",
@@ -128,7 +129,7 @@
             ]
           }
         },
-        "description": "Route-level auth. 'none' relies on Gateway/network protection; 'basic' adds HTTP basic auth (a password is generated and logged once if unset)."
+        "description": "Route-level auth. Omitted/unknown = 'locked' (every request refused until configured). 'none' = explicit anonymous read-only opt-in (roots forced read-only). 'basic' = HTTP basic auth (a password is generated and logged once if unset)."
       },
       "workspace": {
         "type": "string",

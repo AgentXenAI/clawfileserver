@@ -53,6 +53,15 @@ const get = (p, opts) => fetch(base + p, opts);
 let n = 0;
 const ok = (name, cond) => { n++; assert.ok(cond, `FAIL: ${name}`); console.log(`  ✓ ${name}`); };
 
+// 0. manifest/package consistency (ClawHub "manifest is not correct", 2026-11-20)
+{
+  const pkg = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  const mani = JSON.parse(fs.readFileSync(new URL('../openclaw.plugin.json', import.meta.url), 'utf8'));
+  ok('manifest version matches package.json', pkg.version === mani.version);
+  ok('manifest auth.mode enum includes locked', mani.configSchema.properties.auth.properties.mode.enum.includes('locked'));
+  ok('manifest auth.mode default is locked', mani.configSchema.properties.auth.properties.mode.default === 'locked');
+}
+
 // 1. roots index
 let r = await get('/cfs/');
 ok('roots index 200', r.status === 200 && (await r.text()).includes('RW'));
