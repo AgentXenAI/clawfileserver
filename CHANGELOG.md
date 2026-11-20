@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.14 — Xen self-audit hardening (2026-11-19)
+Full manual read-through of core.js/config.js/index.js alongside ClawScan. Two real issues found that the scanner missed, plus one latent-pattern hardening.
+- **Fix (Medium): share-token cookie leaked to every app on the host.** The `?t=` token promotion set `cfs_t` with `Path=/` and no expiry — on a multi-vhost host (e.g. `*.j87.io` behind one proxy) the bearer token was then sent to *every* hostname on that host, and persisted indefinitely. Cookie is now scoped to the plugin basePath, expires in 12h (`Max-Age=43200`), and carries `Secure` when the proxy reports an https client connection.
+- **Fix (Low, DoS): PUT uploads had no size cap.** Drop portals enforce `maxUploadBytes`; plain PUT (the editor save path) accepted unbounded bodies — disk exhaustion by anyone who can reach a writable root. New `maxPutBytes` config (default 512 MiB) enforced both on `Content-Length` and mid-stream for chunked bodies.
+- Hardening notes: `<title>` interpolation was already escaped (no change needed); markdown renderer, share-scope, symlink containment, and CSRF guards reviewed clean.
+- Harness: 182 checks (was 178) — token cookie Path/Max-Age/HttpOnly assertions, chunked PUT past the cap refused 413, normal PUT still works.
+
+
 ## 0.4.13 — ClawScan 2026-11-20 audit fixes (stored XSS)
 ClawHub's ClawScan of 0.4.12 confirmed the 0.4.11 findings (CWE-306 anonymous share admin, CWE-352 CSRF bypass) are gone, and surfaced one new real finding.
 - **Fix (Medium, CWE-79): stored XSS via directory paths embedded in inline scripts.** Directory listings, the editor page, and drop portals interpolated paths/codes into `<script>` blocks with plain `JSON.stringify`, which does not escape `<` — a literal `</script>` inside a *path* terminates the script element during HTML parsing. Attack: an attacker with write access to a root creates a directory named `</script><script>…</script>`; a victim browsing *into* it executes the payload (same-origin, basic-auth context). All inline-script interpolations now go through a `jsJSON` serializer (`<` → `\u003c`, plus U+2028/2029 line terminators). The markdown preview's ad-hoc escape is folded into the same helper.

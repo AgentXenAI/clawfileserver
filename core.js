@@ -522,11 +522,27 @@ ${tag}`;
     try { if (!fs.statSync(path.dirname(p)).isDirectory()) return err(res, 404, 'parent directory does not exist'); } catch { return err(res, 404, 'parent directory does not exist'); }
     const tmp = `${p}.upload-${process.pid}-${Date.now()}`;
     const out = fs.createWriteStream(tmp);
-    let size = 0;
-    req.on('data', (c) => { size += c.length; });
-    req.on('error', () => { fs.unlink(tmp, () => {}); res.destroy(); });
-    out.on('error', (e) => { fs.unlink(tmp, () => {}); err(res, 500, `write failed: ${e.code}`); });
+    const maxPut = cfg.maxPutBytes || 512 * 1024 * 1024;
+    let size = 0, aborted = false;
+    // Xen audit 2026-11-19: cap PUT body size (drop portals have their own
+    // maxUploadBytes; PUT previously had none — disk-exhaustion DoS).
+    if (Number(req.headers['content-length']) > maxPut) {
+      out.destroy(); fs.unlink(tmp, () => {});
+      return err(res, 413, `upload exceeds limit (${fmtSize(maxPut)})`);
+    }
+    req.on('data', (c) => {
+      size += c.length;
+      if (aborted) return;
+      if (size > maxPut) {
+        aborted = true;
+        req.unpipe(out); out.end(); fs.unlink(tmp, () => {});
+        return err(res, 413, `upload exceeds limit (${fmtSize(maxPut)})`);
+      }
+    });
+    req.on('error', () => { aborted = true; fs.unlink(tmp, () => {}); res.destroy(); });
+    out.on('error', (e) => { if (aborted) return; aborted = true; fs.unlink(tmp, () => {}); err(res, 500, `write failed: ${e.code}`); });
     out.on('finish', () => {
+      if (aborted) return;
       try { fs.renameSync(tmp, p); }
       catch (e) { fs.unlink(tmp, () => {}); return err(res, 500, `rename failed: ${e.code}`); }
       log.info?.(`clawfileserver upload ${p} (${fmtSize(size)})`);
@@ -1173,8 +1189,13 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
         }
         // Token-link browsing: promote ?t= to a session cookie so links, forms,
         // and subresources (thumbnails) keep working without rewriting every href.
+        // Xen audit 2026-11-19: scope the cookie to our basePath (a Path=/ cookie
+        // leaks the token to every other app on this host), expire it in 12h, and
+        // mark Secure when the proxy reports an https client connection.
         if (qp0.get('t') === auth.token) {
-          res.setHeader('Set-Cookie', `cfs_t=${auth.token}; Path=/; HttpOnly; SameSite=Lax`);
+          const xf = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+          const secure = xf === 'https' ? '; Secure' : '';
+          res.setHeader('Set-Cookie', `cfs_t=${auth.token}; Path=${bp || '/'}; Max-Age=43200; HttpOnly; SameSite=Lax${secure}`);
         }
       }
       const url = p + query;

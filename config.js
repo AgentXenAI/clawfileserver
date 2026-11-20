@@ -113,6 +113,7 @@ export function normalizeConfig(pluginConfig, api) {
     auth,
     maxPreviewBytes: c.maxPreviewBytes ?? 1024 * 1024,
     maxEditBytes: c.maxEditBytes ?? 512 * 1024,
+    maxPutBytes: c.maxPutBytes ?? 512 * 1024 * 1024,
     maxListEntries: c.maxListEntries ?? 5000,
     maxZipEntries: c.maxZipEntries ?? 2000,
     searchScanLimit: c.searchScanLimit ?? 20000,

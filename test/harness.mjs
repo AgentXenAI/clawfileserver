@@ -32,6 +32,7 @@ server._cfsAuth = createClawFileServer({
   roots: [{ path: rwDir, mode: 'rw', label: 'RW' }],
   auth: { mode: 'basic', user: 'u', password: 'p' },
   maxPreviewBytes: 1024 * 1024, maxEditBytes: 512 * 1024, maxListEntries: 100,
+  maxPutBytes: 4096,
   shares: { stateFile: path.join(tmp, 'state-auth.json') },
 });
 server._cfsTok = createClawFileServer({
@@ -637,6 +638,28 @@ ok('move missing source -> 404', r.status === 404);
   ok('xss: raw </script> never appears inside inline script payload', !body.includes('</script><script>alert(1)</script>'));
   ok('xss: evil path present but escaped as \\u003c', body.includes('\\u003c/script'));
   ok('xss: evil dir own listing escaped', !body.includes(evilName));
+
+  // 28. Xen self-audit 2026-11-19: token cookie scoping + PUT size cap
+  r = await fetch(`${tbase}/cfs/?t=share-token-123`);
+  const sc = r.headers.get('set-cookie') || '';
+  ok('token cookie scoped to basePath (not Path=/)', sc.includes('Path=/cfs') && !/Path=\/;/.test(sc));
+  ok('token cookie has Max-Age and HttpOnly', /Max-Age=\d+/.test(sc) && /HttpOnly/.test(sc));
+  // chunked PUT (no content-length) streaming past the 4 KiB cap -> 413 mid-stream
+  const put413 = await new Promise((resolve, reject) => {
+    const u = new URL(abase2);
+    const rq = http.request({ host: u.hostname, port: u.port, path: '/cfs' + rwDir + '/big.bin', method: 'PUT',
+      headers: { ...BAUTH, 'transfer-encoding': 'chunked' } }, (rs) => { rs.resume(); resolve(rs.statusCode); });
+    rq.on('error', () => resolve('closed'));
+    let n = 0;
+    const tick = () => {
+      while (n < 20) { n++; if (!rq.write(Buffer.alloc(1024))) { rq.once('drain', tick); return; } }
+      rq.end();
+    };
+    tick();
+  });
+  ok('put: chunked upload past maxPutBytes refused 413', put413 === 413 || put413 === 'closed');
+  r = await fetch(`${abase2}/cfs${rwDir}/normal.txt`, { method: 'PUT', headers: BAUTH, body: 'small is fine' });
+  ok('put: normal upload still works', r.status === 201 && fs.existsSync(path.join(rwDir, 'normal.txt')));
 }
 
 server.close(); authServer.close(); tokServer.close();
