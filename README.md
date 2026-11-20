@@ -50,7 +50,7 @@ Then configure and restart the Gateway.
 }
 ```
 
-With no config, ClawFileServer serves the **agent workspace** read-write at `http://<gateway>/clawfileserver/`.
+With no config, ClawFileServer **locks**: every request is refused (401) until you configure `auth` — see Security notes. Set `auth.mode: "basic"` with user+password to serve with login, or `auth.mode: "none"` to opt in to anonymous read-only browsing of the workspace.
 
 ### Share links & drop portals
 
