@@ -170,27 +170,27 @@ r = await fetch(`${abase2}/cfs/s/${sh.code}`); // auth server, no creds: capabil
 ok('share fetch without auth', r.status === 200 && (await r.text()) === '# edited\n');
 r = await fetch(`${abase2}/cfs/s/${sh.code}`, { headers: { Range: 'bytes=0-3' } });
 ok('share Range -> 206', r.status === 206 && (await r.text()) === '# ed');
-r = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(tmp + '/outside.txt')}`, { method: 'POST' });
+r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(tmp + '/outside.txt')}`, { method: 'POST', headers: BAUTH });
 ok('share outside roots -> 403', r.status === 403);
-r = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/missing')}`, { method: 'POST' });
+r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/missing')}`, { method: 'POST', headers: BAUTH });
 ok('share missing file -> 404', r.status === 404);
-r = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=99x`, { method: 'POST' });
+r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=99x`, { method: 'POST', headers: BAUTH });
 ok('bad ttl -> 400', r.status === 400);
 { // max downloads: HEAD free, first GET ok, second 410
-  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1h&max=1`, { method: 'POST' });
+  jr = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1h&max=1`, { method: 'POST', headers: BAUTH });
   const sh1 = await jr.json();
-  await fetch(`${base}/cfs/s/${sh1.code}`, { method: 'HEAD' });
-  r = await fetch(`${base}/cfs/s/${sh1.code}`);
+  await fetch(`${abase2}/cfs/s/${sh1.code}`, { method: 'HEAD' });
+  r = await fetch(`${abase2}/cfs/s/${sh1.code}`);
   ok('share max=1 first GET ok', r.status === 200);
-  r = await fetch(`${base}/cfs/s/${sh1.code}`);
+  r = await fetch(`${abase2}/cfs/s/${sh1.code}`);
   ok('share exhausted -> 410', r.status === 410);
-  r = await fetch(`${base}/cfs/_revoke?code=${sh1.code}`, { method: 'POST' });
+  r = await fetch(`${abase2}/cfs/_revoke?code=${sh1.code}`, { method: 'POST', headers: BAUTH });
   ok('revoke -> ok', r.status === 200);
 }
-r = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1s`, { method: 'POST' });
+r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1s`, { method: 'POST', headers: BAUTH });
 { const sh2 = await r.json();
   await new Promise((res2) => setTimeout(res2, 1200));
-  r = await fetch(`${base}/cfs/s/${sh2.code}`);
+  r = await fetch(`${abase2}/cfs/s/${sh2.code}`);
   ok('expired share -> 410', r.status === 410); }
 r = await fetch(`${base}/cfs/s/ZZZZZZZZZZ`);
 ok('unknown share -> 404', r.status === 404);
@@ -202,13 +202,13 @@ r = await fetch(`${abase2}/cfs/_shares`, { headers: { Authorization: 'Basic ' + 
 { const j = await r.json();
   ok('_shares lists with status', r.status === 200 && j.shares.some((s) => s.code === sh.code && s.status === 'active')); }
 { // dir share
-  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir)}&ttl=1h`, { method: 'POST' });
+  jr = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir)}&ttl=1h`, { method: 'POST', headers: BAUTH });
   const shd = await jr.json();
-  r = await fetch(`${base}/cfs/s/${shd.code}/`);
+  r = await fetch(`${abase2}/cfs/s/${shd.code}/`);
   ok('dir share listing', r.status === 200 && (await r.text()).includes('note.md'));
-  r = await fetch(`${base}/cfs/s/${shd.code}/note.md`);
+  r = await fetch(`${abase2}/cfs/s/${shd.code}/note.md`);
   ok('dir share file fetch', r.status === 200);
-  r = await fetch(`${base}/cfs/s/${shd.code}/../outside.txt`);
+  r = await fetch(`${abase2}/cfs/s/${shd.code}/../outside.txt`);
   ok('dir share traversal blocked', r.status === 403 || r.status === 404);
 }
 { // persistence across instances
@@ -439,7 +439,7 @@ ok('move missing source -> 404', r.status === 404);
   r = await fetch(`${base}/cfs${rwDir}/link-out.txt`, { method: 'PUT', body: 'x' });
   ok('symlink file escaping root: write -> 403', r.status === 403);
   ok('escape target untouched on disk', fs.readFileSync(path.join(tmp, 'outside.txt'), 'utf8') === 'secret\n');
-  r = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/link-out.txt')}`, { method: 'POST' });
+  r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/link-out.txt')}`, { method: 'POST', headers: BAUTH });
   ok('symlink escaping root: share create -> 403', r.status === 403);
   r = await fetch(`${base}/cfs/_move?from=${encodeURIComponent(rwDir + '/link-out.txt')}&to=${encodeURIComponent(rwDir + '/link-moved.txt')}`, { method: 'POST' });
   ok('symlink escaping root: move -> 403', r.status === 403);
@@ -452,11 +452,11 @@ ok('move missing source -> 404', r.status === 404);
   ok('symlink dir escaping root: listing -> 403', r.status === 403);
   r = await fetch(`${base}/cfs/_mkdir?path=${encodeURIComponent(rwDir + '/dir-out/new')}`, { method: 'POST' });
   ok('symlink dir escaping root: mkdir -> 403', r.status === 403);
-  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir)}&ttl=1h`, { method: 'POST' });
+  jr = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir)}&ttl=1h`, { method: 'POST', headers: BAUTH });
   { const shs = await jr.json();
-    r = await fetch(`${base}/cfs/s/${shs.code}/dir-out/outside.txt`);
+    r = await fetch(`${abase2}/cfs/s/${shs.code}/dir-out/outside.txt`);
     ok('dir share: symlinked subdir escape -> 403', r.status === 403);
-    r = await fetch(`${base}/cfs/s/${shs.code}/link-out.txt`);
+    r = await fetch(`${abase2}/cfs/s/${shs.code}/link-out.txt`);
     ok('dir share: escaping file link -> 403', r.status === 403); }
   fs.symlinkSync(path.join(rwDir, 'note.md'), path.join(rwDir, 'link-in.md'));
   r = await get(`/cfs${rwDir}/link-in.md`);
@@ -464,11 +464,11 @@ ok('move missing source -> 404', r.status === 404);
   r = await fetch(`${base}/cfs${rwDir}/link-in.md`, { method: 'PUT', body: 'x' });
   ok('write through symlink refused -> 403', r.status === 403);
   fs.mkdirSync(path.join(rwDir, 'dropdir'));
-  jr = await fetch(`${base}/cfs/_drop?dir=${encodeURIComponent(rwDir + '/dropdir')}&ttl=1h`, { method: 'POST' });
+  jr = await fetch(`${abase2}/cfs/_drop?dir=${encodeURIComponent(rwDir + '/dropdir')}&ttl=1h`, { method: 'POST', headers: BAUTH });
   { const dpd = await jr.json();
     fs.rmSync(path.join(rwDir, 'dropdir'), { recursive: true });
     fs.symlinkSync(tmp, path.join(rwDir, 'dropdir'));
-    r = await fetch(`${base}/cfs/d/${dpd.code}?name=x.txt`, { method: 'POST', body: 'x' });
+    r = await fetch(`${abase2}/cfs/d/${dpd.code}?name=x.txt`, { method: 'POST', body: 'x' });
     ok('drop after dir swapped to escape symlink -> 403', r.status === 403); }
 }
 {
@@ -482,26 +482,26 @@ ok('move missing source -> 404', r.status === 404);
   fs.symlinkSync(path.join(rwDir, 'secretbox', 'priv.txt'), path.join(rwDir, 'sharebox', 'link-priv'));
   fs.mkdirSync(path.join(rwDir, 'sharebox', 'sub'));
   fs.symlinkSync(path.join(rwDir, 'secretbox'), path.join(rwDir, 'sharebox', 'sub', 'mid'));
-  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/sharebox')}&ttl=1h`, { method: 'POST' });
+  jr = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/sharebox')}&ttl=1h`, { method: 'POST', headers: BAUTH });
   { const shx = await jr.json();
-    r = await fetch(`${base}/cfs/s/${shx.code}/link-secret/priv.txt`);
+    r = await fetch(`${abase2}/cfs/s/${shx.code}/link-secret/priv.txt`);
     ok('share: symlink escaping share but in root -> 403', r.status === 403);
-    r = await fetch(`${base}/cfs/s/${shx.code}/sub/mid/priv.txt`);
+    r = await fetch(`${abase2}/cfs/s/${shx.code}/sub/mid/priv.txt`);
     ok('share: symlink in intermediate component -> 403', r.status === 403);
-    r = await fetch(`${base}/cfs/s/${shx.code}/link-inner`);
+    r = await fetch(`${abase2}/cfs/s/${shx.code}/link-inner`);
     ok('share: symlink inside share refused (strict policy)', r.status === 403);
-    r = await fetch(`${base}/cfs/s/${shx.code}/pub.txt`);
+    r = await fetch(`${abase2}/cfs/s/${shx.code}/pub.txt`);
     ok('share: normal file still serves', r.status === 200 && (await r.text()) === 'public\n');
-    const lt = await (await fetch(`${base}/cfs/s/${shx.code}/`)).text();
+    const lt = await (await fetch(`${abase2}/cfs/s/${shx.code}/`)).text();
     ok('share listing: symlink row leaks no external size', lt.includes('link-priv') && !lt.includes('<td>8 B</td>')); }
   fs.writeFileSync(path.join(rwDir, 'swapme.txt'), 'orig\n');
-  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/swapme.txt')}&ttl=1h`, { method: 'POST' });
+  jr = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/swapme.txt')}&ttl=1h`, { method: 'POST', headers: BAUTH });
   { const shw = await jr.json();
-    r = await fetch(`${base}/cfs/s/${shw.code}`);
+    r = await fetch(`${abase2}/cfs/s/${shw.code}`);
     ok('file share serves before swap', r.status === 200);
     fs.rmSync(path.join(rwDir, 'swapme.txt'));
     fs.symlinkSync(path.join(rwDir, 'secretbox', 'priv.txt'), path.join(rwDir, 'swapme.txt'));
-    r = await fetch(`${base}/cfs/s/${shw.code}`);
+    r = await fetch(`${abase2}/cfs/s/${shw.code}`);
     ok('file share swapped to in-root symlink -> 403', r.status === 403); }
 }
 {
@@ -526,9 +526,9 @@ ok('move missing source -> 404', r.status === 404);
   r = await get(`/cfs${rwDir}/page.html`);
   { const t = await r.text();
     ok('html text preview stays escaped', r.status === 200 && t.includes('&lt;script&gt;') && !t.includes('<script>alert')); }
-  jr = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/page.html')}&ttl=1h`, { method: 'POST' });
+  jr = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/page.html')}&ttl=1h`, { method: 'POST', headers: BAUTH });
   { const shx = await jr.json();
-    r = await get(`/cfs/s/${shx.code}`);
+    r = await fetch(`${abase2}/cfs/s/${shx.code}`);
     ok('shared html: attachment + sandbox', r.status === 200
       && /attachment/.test(r.headers.get('content-disposition') || '')
       && (r.headers.get('content-security-policy') || '').includes('sandbox')); }
@@ -593,6 +593,38 @@ ok('move missing source -> 404', r.status === 404);
   r = await get(`/cfs/_search?root=${encodeURIComponent(rwDir)}&q=${encodeURIComponent('fi?d*e*YZ*1')}`);
   { const j = await r.json().catch(() => ({}));
     ok('search: glob semantics unchanged (full-match, ? = one char)', r.status === 200 && j.results?.some((x) => x.name === 'findme-XYZ-notes-1.txt') !== false); }
+}
+
+// 26. share-admin hardening (ClawScan 2026-11-19: CWE-306 + CWE-352)
+{
+  // auth.mode "none" must NOT leave share administration anonymous
+  r = await fetch(`${base}/cfs/_shares`);
+  ok('no-auth server: share list requires basic auth -> 403', r.status === 403);
+  r = await fetch(`${base}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1h`, { method: 'POST' });
+  ok('no-auth server: share create refused -> 403', r.status === 403);
+  r = await fetch(`${base}/cfs/_revoke?code=ZZZZZZZZZZ`, { method: 'POST' });
+  ok('no-auth server: revoke refused -> 403', r.status === 403);
+  r = await fetch(`${base}/cfs/_drop?dir=${encodeURIComponent(rwDir + '/inbox')}`, { method: 'POST' });
+  ok('no-auth server: drop create refused -> 403', r.status === 403);
+  // cross-origin share-admin POSTs with valid creds refused before any state change
+  const before = await (await fetch(`${abase2}/cfs/_shares`, { headers: BAUTH })).json();
+  r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1h`, { method: 'POST', headers: { ...BAUTH, Origin: 'https://evil.example' } });
+  ok('csrf: cross-origin /_share refused', r.status === 403);
+  r = await fetch(`${abase2}/cfs/_revoke?code=${(before.shares[0] || {}).code || 'ZZZZZZZZZZ'}`, { method: 'POST', headers: { ...BAUTH, Origin: 'https://evil.example' } });
+  ok('csrf: cross-origin /_revoke refused', r.status === 403);
+  r = await fetch(`${abase2}/cfs/_drop?dir=${encodeURIComponent(rwDir + '/inbox')}&ttl=1h`, { method: 'POST', headers: { ...BAUTH, Origin: 'https://evil.example' } });
+  ok('csrf: cross-origin /_drop refused', r.status === 403);
+  const after = await (await fetch(`${abase2}/cfs/_shares`, { headers: BAUTH })).json();
+  ok('csrf: refused admin posts changed no state', JSON.stringify(after) === JSON.stringify(before));
+  // same-origin admin still works
+  r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1h`, { method: 'POST', headers: { ...BAUTH, Origin: `http://127.0.0.1:${authServer.address().port}` } });
+  ok('csrf: same-origin /_share allowed', r.status === 201);
+  // proxy-reported scheme must match Origin scheme
+  r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1h`, { method: 'POST', headers: { ...BAUTH, Origin: `http://127.0.0.1:${authServer.address().port}`, 'X-Forwarded-Proto': 'https' } });
+  ok('csrf: scheme mismatch via X-Forwarded-Proto refused', r.status === 403);
+  // read-only token must never administer (browse yes, manage no)
+  r = await fetch(`${tbase}/cfs/_shares?t=share-token-123`);
+  ok('token cannot list shares -> 403', r.status === 403);
 }
 
 server.close(); authServer.close(); tokServer.close();

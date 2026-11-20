@@ -712,8 +712,14 @@ ${tag}`;
   function mutationOriginOk(req) {
     const o = req.headers.origin;
     if (o === undefined) return true;
-    try { return new URL(o).host.toLowerCase() === String(req.headers.host || '').toLowerCase(); }
-    catch { return false; }
+    let u;
+    try { u = new URL(o); } catch { return false; }
+    if (u.host.toLowerCase() !== String(req.headers.host || '').toLowerCase()) return false;
+    // ClawScan 2026-11-19: when a reverse proxy reports the client-facing
+    // scheme, it must match the Origin's scheme too (scheme-aware comparison).
+    const xfp = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim().toLowerCase();
+    if (xfp && xfp !== u.protocol.replace(/:$/, '').toLowerCase()) return false;
+    return true;
   }
 
   /**
@@ -1170,10 +1176,19 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
       req.url = url; // downstream helpers inspect query flags on req.url
       const qp = new URLSearchParams(query);
 
-      // share/drop admin endpoints: basic auth only — the read-only token must
-      // never create, list, or revoke links.
+      // share/drop admin endpoints: Basic auth is required UNCONDITIONALLY
+      // (ClawScan 2026-11-19, CWE-306: auth.mode "none" must not leave share
+      // administration anonymous — roots are already forced read-only in that
+      // mode, and anonymous capability minting/enumeration must die with it)
+      // and the CSRF guard runs BEFORE dispatch (CWE-352: the early-return
+      // routing used to bypass the origin check below).
       if (p === '/_share' || p === '/_drop' || p === '/_revoke' || p === '/_shares') {
-        if (auth.mode === 'basic' && !basicAuthed(req)) return err(res, 403, 'share admin requires basic auth (the read-only token is not enough)');
+        if (req.method !== 'GET' && req.method !== 'HEAD' && !mutationOriginOk(req)) {
+          return err(res, 403, 'cross-origin mutation refused (Origin does not match Host)');
+        }
+        if (auth.mode !== 'basic' || !basicAuthed(req)) {
+          return err(res, 403, 'share administration requires basic authentication');
+        }
         if (p === '/_shares' && req.method === 'GET') return handleSharesList(res);
         if (req.method !== 'POST') return err(res, 405, 'POST required for share admin actions');
         if (p === '/_share') return handleShareCreate(req, res, bp, qp);
