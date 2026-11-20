@@ -25,7 +25,7 @@ Born from a day-trip file server; packaged for everyone.
 - **Drop portals**: `POST /_drop?dir=<abs-rw>&ttl=12h&max=10` mints a `/d/<code>` upload page — drag-and-drop, streamed straight to disk (memory-safe, 2 GiB default per file), date-partitioned folders, collision-safe names. Perfect for receiving files from someone outside your network without giving them an account.
 - **Bundled skill** `media-gallery`: teaches your agent to build a self-refreshing image-gallery dashboard widget on top of the JSON listing + share token (see `skills/media-gallery/`)
 - **Root-scoped security**: only configured roots are reachable; read-only roots can't be written; everything outside returns 403. Realpath containment: symlinks inside a root can never point outside it (read or write).
-- **Fail-closed auth**: writes (upload/mkdir/edit/delete/move/drop) require `auth.mode: "basic"`. Without it every root is forced read-only — an unauthenticated server can only browse. A password is generated and logged once if you enable `basic` without one.
+- **Fail-closed auth**: since v0.4.16 the default is **locked**: with no `auth` configured the server refuses *every* request (401) until you configure credentials or explicitly opt in. Writes (upload/mkdir/edit/delete/move/drop) require `auth.mode: "basic"`. With explicit `auth.mode: "none"` every root is forced read-only — an anonymous server can only browse. A password is generated and logged once if you enable `basic` without one.
 
 ## Install
 
@@ -73,7 +73,8 @@ Records persist in `shares.stateFile` (default `<state-dir>/clawfileserver/share
 
 ## Security notes — read me
 
-- The route is mounted on the **Gateway HTTP port**. With `auth.mode: "none"` (the default) anyone who can reach that port can **read** your configured roots — writes are refused (v0.4.7 fail-closed). That is fine when the Gateway is loopback-only or behind your own access-controlled TLS proxy; otherwise set `auth.mode: "basic"`.
+- The route is mounted on the **Gateway HTTP port**. Since v0.4.16 an unconfigured server is **locked** (401 on everything) — anonymous browsing is opt-in only. If you set `auth.mode: "none"` explicitly, anyone who can reach that port can **read** your configured roots — writes are refused (v0.4.7 fail-closed). That is fine when the Gateway is loopback-only or behind your own access-controlled TLS proxy; otherwise set `auth.mode: "basic"`.
+- **Migration (v0.4.16)**: installs that relied on the old implicit anonymous default must now set `auth.mode: "none"` explicitly. Installs that set `auth.user`/`auth.password` without a mode are unaffected — basic auth is inferred.
 - `openclaw doctor` flags `auth.mode: "none"` as a dangerous flag on purpose.
 - Keep roots narrow. Don't expose `/`. Read-only (`"mode": "ro"`) is the default for the implicit workspace root; `"mode": "rw"` enables upload/mkdir/edit for that root **only when basic auth is configured** (unauthenticated serving is always read-only).
 - Editing is limited to text files under `maxEditBytes` (512 KiB default).

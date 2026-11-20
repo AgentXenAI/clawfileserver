@@ -65,7 +65,14 @@ export function normalizeConfig(pluginConfig, api) {
   let roots = Array.isArray(c.roots) && c.roots.length > 0
     ? c.roots
     : [{ path: c.workspace || api.config?.agents?.defaults?.workspace || defaultWorkspace(), mode: 'ro' }];
-  const auth = { mode: 'none', ...(c.auth || {}) };
+  // ClawScan 2026-11-20 (CWE-306): safe default. With no auth configured the
+  // plugin LOCKS and refuses every request with setup instructions — anonymous
+  // read-only serving is now an explicit opt-in (auth.mode="none"). Setting
+  // user+password without a mode infers "basic" (clear intent).
+  let auth;
+  if (c.auth && c.auth.mode) auth = { ...c.auth };
+  else if (c.auth && c.auth.user && c.auth.password) auth = { mode: 'basic', ...c.auth };
+  else auth = { mode: 'locked' };
   // Fail closed on unresolvable secret references: a broken password ref keeps
   // basic mode but poisons the credential (passwordFailed) so EVERY request is
   // refused with 401 until the secret resolves — never a silent downgrade to

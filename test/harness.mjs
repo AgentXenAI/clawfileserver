@@ -25,6 +25,7 @@ const authServer = http.createServer((req, res) => {
 });
 server._cfs = createClawFileServer({
   roots: [{ path: rwDir, mode: 'rw', label: 'RW' }, { path: roDir, mode: 'ro', label: 'RO' }],
+  auth: { mode: 'none' }, // explicit anonymous opt-in (locked is the default now)
   maxPreviewBytes: 1024 * 1024, maxEditBytes: 512 * 1024, maxListEntries: 100,
   shares: { stateFile: path.join(tmp, 'state-main.json') },
 });
@@ -247,7 +248,7 @@ r = await fetch(`${abase2}/cfs/_shares`, { headers: { Authorization: 'Basic ' + 
   ok('dir share traversal blocked', r.status === 403 || r.status === 404);
 }
 { // persistence across instances
-  const fresh = createClawFileServer({ roots: [{ path: rwDir, mode: 'rw' }], shares: { stateFile: path.join(tmp, 'state-auth.json') }, maxPreviewBytes: 1024, maxEditBytes: 1024, maxListEntries: 10 });
+  const fresh = createClawFileServer({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'none' }, shares: { stateFile: path.join(tmp, 'state-auth.json') }, maxPreviewBytes: 1024, maxEditBytes: 1024, maxListEntries: 10 });
   const srv2 = http.createServer((req, res) => fresh.handle(req, res, '/cfs'));
   await new Promise((r2) => srv2.listen(0, '127.0.0.1', r2));
   r = await fetch(`http://127.0.0.1:${srv2.address().port}/cfs/s/${sh.code}`);
@@ -444,8 +445,12 @@ ok('move missing source -> 404', r.status === 404);
   // 23a. fail-closed config defaults (finding 1)
   const fakeApi = { config: {}, logger: { info() {}, warn() {} } };
   const cfgDefault = normalizeConfig({}, fakeApi);
-  ok('default config: auth mode none', cfgDefault.auth.mode === 'none');
+  ok('default config: auth LOCKED by default (CWE-306 2026-11-20 fix)', cfgDefault.auth.mode === 'locked');
   ok('default config: default root is read-only', cfgDefault.roots.every((x) => x.mode === 'ro'));
+  const cfgCredNoMode = normalizeConfig({ auth: { user: 'u', password: 'p' } }, fakeApi);
+  ok('user+password without mode infers basic', cfgCredNoMode.auth.mode === 'basic');
+  const cfgExplicitNone = normalizeConfig({ auth: { mode: 'none' } }, fakeApi);
+  ok('explicit auth.mode=none honored (anonymous opt-in)', cfgExplicitNone.auth.mode === 'none');
   const cfgForced = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }] }, fakeApi);
   ok('unauth config: rw roots forced to ro', cfgForced.roots.every((x) => x.mode === 'ro'));
   const cfgTok = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { token: 't' } }, fakeApi);
@@ -453,7 +458,7 @@ ok('move missing source -> 404', r.status === 404);
   const cfgAuth = normalizeConfig({ roots: [{ path: rwDir, mode: 'rw' }], auth: { mode: 'basic', user: 'u', password: 'p' } }, fakeApi);
   ok('basic-auth config: rw preserved', cfgAuth.roots[0].mode === 'rw');
   {
-    const unauth = createClawFileServer({ ...cfgForced, maxPreviewBytes: 1024, maxEditBytes: 1024, maxListEntries: 10, shares: { stateFile: path.join(tmp, 'state-unauth.json') } });
+    const unauth = createClawFileServer({ ...cfgForced, auth: { mode: 'none' }, maxPreviewBytes: 1024, maxEditBytes: 1024, maxListEntries: 10, shares: { stateFile: path.join(tmp, 'state-unauth.json') } });
     const usrv = http.createServer((req, res) => unauth.handle(req, res, '/cfs'));
     await new Promise((r2) => usrv.listen(0, '127.0.0.1', r2));
     const ubase = `http://127.0.0.1:${usrv.address().port}`;
@@ -694,6 +699,38 @@ ok('move missing source -> 404', r.status === 404);
   ok('put: chunked upload past maxPutBytes refused 413', put413 === 413 || put413 === 'closed');
   r = await fetch(`${abase2}/cfs${rwDir}/normal.txt`, { method: 'PUT', headers: BAUTH, body: 'small is fine' });
   ok('put: normal upload still works', r.status === 201 && fs.existsSync(path.join(rwDir, 'normal.txt')));
+}
+
+// 40. locked default integration (ClawScan 2026-11-20 CWE-306): unconfigured auth
+// must refuse EVERY surface — index, listings, raw, search, zip, writes, share and
+// drop pages, share admin — and a stray token must not unlock it.
+{
+  server._cfsLocked = createClawFileServer({
+    roots: [{ path: rwDir, mode: 'rw', label: 'RW' }],
+    auth: { mode: 'locked', token: 'tok-must-not-unlock' },
+    maxPreviewBytes: 1024 * 1024, maxEditBytes: 512 * 1024, maxListEntries: 100,
+    shares: { stateFile: path.join(tmp, 'state-locked.json') },
+  });
+  const lockServer = http.createServer((req, res) => { server._cfsLocked.handle(req, res, '/cfs'); });
+  await new Promise((r) => lockServer.listen(0, '127.0.0.1', r));
+  const lbase = `http://127.0.0.1:${lockServer.address().port}`;
+  let lr = await fetch(`${lbase}/cfs/`);
+  ok('locked: roots index 401 + guidance', lr.status === 401 && (await lr.text()).includes('not configured'));
+  lr = await fetch(`${lbase}/cfs${rwDir}/`); ok('locked: listing 401', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs${rwDir}/?json=1`); ok('locked: json listing 401', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs${rwDir}/note.md`); ok('locked: raw file 401', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs${rwDir}/?q=hello`); ok('locked: search 401', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs${rwDir}/?zip=1`); ok('locked: archive 401', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs/s/nonexistent`); ok('locked: share page 401', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs/d/nonexistent`); ok('locked: drop page 401', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs/_shares`); ok('locked: share admin 401', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs/`, { headers: { Cookie: 'cfs_t=tok-must-not-unlock' } });
+  ok('locked: token cookie cannot unlock', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs/?t=tok-must-not-unlock`);
+  ok('locked: ?t= cannot unlock', lr.status === 401);
+  lr = await fetch(`${lbase}/cfs${rwDir}/locked.txt`, { method: 'PUT', body: 'x' });
+  ok('locked: PUT refused 401', lr.status === 401);
+  lockServer.close();
 }
 
 server.close(); authServer.close(); tokServer.close();

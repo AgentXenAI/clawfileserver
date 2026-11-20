@@ -21,5 +21,17 @@ export default definePluginEntry({
       `clawfileserver: serving ${cfg.roots.length} root(s) at ${cfg.basePath}/ ` +
       `(auth: ${cfg.auth.mode}; rw: ${cfg.roots.filter((r) => r.mode === 'rw').length})`,
     );
+    // ClawScan 2026-11-20 (CWE-306): make the security posture loud at startup.
+    if (cfg.auth.mode === 'locked') {
+      api.logger.warn?.(
+        'clawfileserver: LOCKED — no auth configured; every request is refused. ' +
+        'Set auth.mode="basic" (with user+password) to serve with login, or auth.mode="none" to explicitly allow anonymous read-only.',
+      );
+    } else if (cfg.auth.mode === 'none') {
+      api.logger.warn?.(
+        `clawfileserver: anonymous read-only access ENABLED (auth.mode="none") for ${cfg.roots.length} root(s) — ` +
+        `anyone who can reach ${cfg.basePath}/ can read these files. Set auth.mode="basic" to require login.`,
+      );
+    }
   },
 });

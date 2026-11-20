@@ -173,7 +173,7 @@ export function createClawFileServer(cfg) {
   const maxPreview = cfg.maxPreviewBytes;
   const maxEdit = cfg.maxEditBytes;
   const maxList = cfg.maxListEntries;
-  const auth = cfg.auth || { mode: 'none' };
+  const auth = cfg.auth || { mode: 'locked' };
   const log = cfg.logger || console;
 
   const inRoot = (p) => roots.some((r) => p === r.path || p.startsWith(r.path + '/'));
@@ -1187,6 +1187,17 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
       catch { return err(res, 400, 'bad URL encoding'); }
       if (p.includes('\0')) return err(res, 400, 'bad path');
       if (!p.startsWith('/')) p = '/' + p;
+
+      // ClawScan 2026-11-20 (CWE-306): locked default — nothing is served,
+      // not even share/drop capability pages, until auth is configured or
+      // anonymous mode is explicitly opted into via auth.mode="none".
+      if (auth.mode === 'locked') {
+        res.writeHead(401, { 'Content-Type': 'text/plain', 'X-Content-Type-Options': 'nosniff', 'Cache-Control': 'no-store' });
+        res.end('ClawFileServer: authentication is not configured, so all access is refused.\n'
+          + 'Set plugins.entries.clawfileserver.config.auth.mode="basic" with auth.user and auth.password,\n'
+          + 'or set auth.mode="none" to explicitly opt in to anonymous read-only access.\n');
+        return true;
+      }
 
       // public capability routes: the code in the URL is the credential
       if (p.startsWith('/s/') || p === '/s') {
