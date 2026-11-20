@@ -46,6 +46,11 @@ const AUDIO = new Set(['.mp3', '.wav', '.ogg', '.oga', '.m4a', '.aac', '.flac'])
 const esc = (s) => String(s).replace(/[&<>"']/g,
   (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+// JSON serialization safe for embedding inside <script> elements: a literal
+// "</script>" inside a JSON string would terminate the element during HTML
+// parsing regardless of JS escaping (ClawScan 2026-11-19, CWE-79).
+const jsJSON = (v) => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028|\u2029/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+
 function fmtSize(n) {
   if (n < 1024) return `${n} B`;
   const u = ['KiB', 'MiB', 'GiB', 'TiB'];
@@ -319,7 +324,7 @@ ${FAVICON_URI ? `<link rel="icon" type="image/png" href="${FAVICON_URI}">` : ''}
 <span id="upst">drop files anywhere to upload</span></div>` : '';
     const searchUI = '';
     const upJS = inWritable(p) ? `<script>
-const DIR=${JSON.stringify(p)};const BASE=${JSON.stringify(bp)};const st=document.getElementById('upst');
+const DIR=${jsJSON(p)};const BASE=${jsJSON(bp)};const st=document.getElementById('upst');
 let done=0,total=0;
 async function put(f){total++;st.textContent='uploading '+f.name+'\u2026';
  try{const r=await fetch(BASE+'/'+DIR.split('/').filter(Boolean).map(encodeURIComponent).join('/')+'/'+encodeURIComponent(f.name),{method:'PUT',body:f});
@@ -365,7 +370,7 @@ ${upJS}`;
 <span id="st"></span></div>
 <textarea id="ed" spellcheck="false">${esc(text)}</textarea>
 <script>
-const URL_=${JSON.stringify(encPath(bp, p))},MT=${JSON.stringify(String(Math.round(st.mtimeMs)))};
+const URL_=${jsJSON(encPath(bp, p))},MT=${jsJSON(String(Math.round(st.mtimeMs)))};
 const ed=document.getElementById('ed'),stt=document.getElementById('st');
 let dirty=false,saved=false;
 ed.addEventListener('input',()=>{dirty=true});
@@ -449,7 +454,7 @@ addEventListener('keydown',(e)=>{if((e.ctrlKey||e.metaKey)&&e.key==='s'){e.preve
 <div id="mdview" class="mdv"></div>
 <pre id="mdraw" hidden>${esc(text)}</pre>
 <script>
-const MD=${JSON.stringify(text).replace(/</g, '\\u003c')};
+const MD=${jsJSON(text)};
 function md(s){
  const E=s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
  const L=E.split('\\n');const o=[];let code=false,cb=[],ul=false,ol=false,para=[];
@@ -1014,7 +1019,7 @@ ${tag}`;
 <div id="zone" style="border:2px dashed #2A4E7C;border-radius:10px;padding:48px;text-align:center;color:#7FA8C9">drag &amp; drop files here — or <label style="color:#38BDF8;cursor:pointer">browse<input id="f" type="file" multiple hidden></label></div>
 <div id="list" style="margin-top:14px"></div>
 <script>
-const CODE=${JSON.stringify(rec.code)},BP=${JSON.stringify(bp)};
+const CODE=${jsJSON(rec.code)},BP=${jsJSON(bp)};
 const zone=document.getElementById('zone'),list=document.getElementById('list'),f=document.getElementById('f');
 let secs=${left};
 setInterval(()=>{secs=document.getElementById('cd').textContent='link expires in '+Math.max(0,--secs)+'s';},1000);

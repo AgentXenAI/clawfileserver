@@ -625,6 +625,18 @@ ok('move missing source -> 404', r.status === 404);
   // read-only token must never administer (browse yes, manage no)
   r = await fetch(`${tbase}/cfs/_shares?t=share-token-123`);
   ok('token cannot list shares -> 403', r.status === 403);
+
+  // 27. stored XSS via directory paths embedded in inline scripts (ClawScan 2026-11-19, CWE-79)
+  const evilName = '</script><script>alert(1)</script>';
+  r = await fetch(`${abase2}/cfs/_mkdir?path=${encodeURIComponent(rwDir + '/' + evilName)}`, { method: 'POST', headers: BAUTH });
+  ok('xss: evil dir created', r.status === 201);
+  // THE attack: victim browses INTO the evil dir; its inline script embeds the
+  // current path raw. Send raw <> like a real browser address bar would.
+  const evilRaw = `${abase2}/cfs${rwDir}/${evilName}`;
+  const body = await (await fetch(evilRaw, { headers: BAUTH })).text();
+  ok('xss: raw </script> never appears inside inline script payload', !body.includes('</script><script>alert(1)</script>'));
+  ok('xss: evil path present but escaped as \\u003c', body.includes('\\u003c/script'));
+  ok('xss: evil dir own listing escaped', !body.includes(evilName));
 }
 
 server.close(); authServer.close(); tokServer.close();

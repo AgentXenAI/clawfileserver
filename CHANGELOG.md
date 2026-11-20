@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.13 — ClawScan 2026-11-20 audit fixes (stored XSS)
+ClawHub's ClawScan of 0.4.12 confirmed the 0.4.11 findings (CWE-306 anonymous share admin, CWE-352 CSRF bypass) are gone, and surfaced one new real finding.
+- **Fix (Medium, CWE-79): stored XSS via directory paths embedded in inline scripts.** Directory listings, the editor page, and drop portals interpolated paths/codes into `<script>` blocks with plain `JSON.stringify`, which does not escape `<` — a literal `</script>` inside a *path* terminates the script element during HTML parsing. Attack: an attacker with write access to a root creates a directory named `</script><script>…</script>`; a victim browsing *into* it executes the payload (same-origin, basic-auth context). All inline-script interpolations now go through a `jsJSON` serializer (`<` → `\u003c`, plus U+2028/2029 line terminators). The markdown preview's ad-hoc escape is folded into the same helper.
+- Harness: 178 checks (was 174) — section 27 creates an evil-named directory and browses into it with raw `<>` in the URL; negative control confirms the old code fails the test and the fix passes.
+- Not changed: ClawScan's High "default anonymous access" finding is the documented `auth.mode: "none"` default (fail-closed read-only since 0.4.7, flagged by `openclaw doctor` on purpose). Changing the default to require basic auth is a design decision reserved for the operator/maintainer.
+
+
 ## 0.4.12 — ClawScan 2026-11-19 audit fixes (share administration)
 ClawHub's ClawScan scan of 0.4.11 completed with two Medium findings on the share-administration surface. Both were real; both are fixed here.
 - **Fix (Medium, CWE-306): share administration is no longer anonymous when `auth.mode` is `"none"`.** The `/_share`, `/_shares`, `/_drop`, `/_revoke` endpoints only enforced basic auth *when basic mode was configured* — in the default `none` mode (where roots are already forced read-only) anonymous callers could mint, enumerate, and revoke share capabilities, contradicting the README. Share admin now requires basic authentication unconditionally: `if (auth.mode !== 'basic' || !basicAuthed(req)) → 403`. Operators who ran with `auth.mode: "none"` and had created shares anonymously should review and revoke those records (they remain in the state file) after upgrading.
