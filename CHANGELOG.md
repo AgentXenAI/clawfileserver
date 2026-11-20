@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.15 — ClawScan 2026-11-20 audit fixes (quota enforcement)
+ClawScan of 0.4.14 confirmed the CWE-79 stored XSS is gone (and the 0.4.11 pair stays gone), and surfaced two new quota-enforcement weaknesses. Both real; both fixed.
+- **Fix (Medium): suffix Range requests bypassed share download limits.** Download accounting only counted GETs with no `Range` header or one starting exactly `bytes=0-`; a `Range: bytes=-N` suffix request streamed the whole file without ever counting. Every GET that serves bytes now consumes a download slot (HEAD stays free). Resumable multi-part downloads therefore count per request — deliberate: an unauthenticated continuation exemption is exactly the hole being closed.
+- **Fix (Medium, CWE-362): concurrent uploads bypassed drop-portal count limits.** The portal was checked before body streaming but counted only on completion, so N parallel POSTs all passed with one slot left. Slots are now reserved synchronously at admission (`n + inflight >= max` refuses), released on every abort/failure path, and each portal is capped at 3 concurrent uploads (429 beyond).
+- Standing finding unchanged: the High "default anonymous access" (`auth.mode: "none"` default) remains the documented, operator-accepted design.
+- Harness: 185 checks (was 182) — suffix-range consumes the quota then 410, concurrent drop pair admits exactly one (201/410).
+
+
 ## 0.4.14 — Xen self-audit hardening (2026-11-19)
 Full manual read-through of core.js/config.js/index.js alongside ClawScan. Two real issues found that the scanner missed, plus one latent-pattern hardening.
 - **Fix (Medium): share-token cookie leaked to every app on the host.** The `?t=` token promotion set `cfs_t` with `Path=/` and no expiry — on a multi-vhost host (e.g. `*.j87.io` behind one proxy) the bearer token was then sent to *every* hostname on that host, and persisted indefinitely. Cookie is now scoped to the plugin basePath, expires in 12h (`Max-Age=43200`), and carries `Secure` when the proxy reports an https client connection.

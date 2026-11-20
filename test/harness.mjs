@@ -188,6 +188,25 @@ ok('bad ttl -> 400', r.status === 400);
   r = await fetch(`${abase2}/cfs/_revoke?code=${sh1.code}`, { method: 'POST', headers: BAUTH });
   ok('revoke -> ok', r.status === 200);
 }
+{ // ClawScan 2026-11-19: suffix-range must not bypass the download quota
+  jr = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1h&max=1`, { method: 'POST', headers: BAUTH });
+  const sh1b = await jr.json();
+  r = await fetch(`${abase2}/cfs/s/${sh1b.code}`, { headers: { Range: 'bytes=-1000000' } });
+  ok('share suffix-range counts as the one download', r.status === 206 || r.status === 200);
+  r = await fetch(`${abase2}/cfs/s/${sh1b.code}`);
+  ok('share exhausted after suffix-range GET -> 410', r.status === 410);
+}
+{ // ClawScan 2026-11-19 CWE-362: concurrent drops cannot share one slot
+  jr = await fetch(`${abase2}/cfs/_drop?dir=${encodeURIComponent(rwDir + '/inbox')}&ttl=1h&max=1`, { method: 'POST', headers: BAUTH });
+  const dp = await jr.json();
+  const body = new Blob([new Uint8Array(256 * 1024).fill(65)]);
+  const two = await Promise.all([
+    fetch(`${abase2}/cfs/d/${dp.code}?name=a.bin`, { method: 'POST', body }),
+    fetch(`${abase2}/cfs/d/${dp.code}?name=b.bin`, { method: 'POST', body }),
+  ]);
+  const codes = two.map((x) => x.status).sort();
+  ok('drop max=1: concurrent pair admits exactly one (' + codes.join(',') + ')', codes[0] === 201 && codes[1] === 410);
+}
 r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1s`, { method: 'POST', headers: BAUTH });
 { const sh2 = await r.json();
   await new Promise((res2) => setTimeout(res2, 1200));

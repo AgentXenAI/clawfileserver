@@ -1019,11 +1019,11 @@ ${tag}`;
       if (rec.dir) return shareListing(res, bp, rec, parts.map((x) => { try { return decodeURIComponent(x); } catch { return x; } }));
       return err(res, 404, 'not a file');
     }
-    // count one download per non-continuation GET
-    if (req.method !== 'HEAD') {
-      const rg = req.headers.range;
-      if (!rg || /^bytes=0-/.test(rg)) { rec.n++; saveStore(); }
-    }
+    // Xen/ClawScan 2026-11-19 (Medium): count EVERY GET that serves bytes.
+    // The old exemption for continuation ranges (anything not exactly bytes=0-)
+    // let `Range: bytes=-N` suffix requests stream the whole file without ever
+    // incrementing the download quota.
+    if (req.method !== 'HEAD') { rec.n++; saveStore(); }
     const dl = /[?&]dl=1/.test(req.url || '');
     return streamFile(req, res, target, st, dl);
   }
@@ -1064,8 +1064,15 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
   function handleDropUpload(req, res, bp, code) {
     const rec = store.drops[code];
     if (!rec) return err(res, 404, 'no such drop portal');
+    // Xen/ClawScan 2026-11-19 (Medium, CWE-362): reserve a slot SYNCHRONOUSLY
+    // before accepting the body. The old check ran pre-stream but counted only
+    // on completion, so N concurrent POSTs all passed with one slot left.
+    rec.inflight = (rec.inflight || 0);
+    if (rec.max && (rec.n + rec.inflight) >= rec.max) return err(res, 410, 'this drop portal is exhausted');
+    if (rec.inflight >= 3) return err(res, 429, 'too many concurrent uploads for this portal');
     const status = statusOf(rec);
     if (status !== 'active') return err(res, 410, `this drop portal is ${status}`);
+    rec.inflight++;
     const qp = new URLSearchParams((req.url || '').split('?')[1] || '');
     const name = safeName(qp.get('name') || req.headers['x-filename'] || 'file');
     const maxBytes = shCfg.maxUploadBytes || 2 * 1024 ** 3;
@@ -1084,21 +1091,24 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
     }
     const tmpF = `${target}.upload-${process.pid}-${Date.now()}`;
     const out = fs.createWriteStream(tmpF);
-    let size = 0, failed = false;
+    let size = 0, failed = false, released = false;
+    const release = () => { if (!released) { released = true; rec.inflight = Math.max(0, (rec.inflight || 1) - 1); } };
     req.on('data', (c) => {
       size += c.length;
       if (size > maxBytes && !failed) {
         failed = true;
+        release();
         req.unpipe(out);
         out.end();
         fs.unlink(tmpF, () => {});
         err(res, 413, `file exceeds limit (${fmtSize(maxBytes)})`);
       }
     });
-    req.on('error', () => { failed = true; fs.unlink(tmpF, () => {}); res.destroy(); });
-    out.on('error', (e) => { if (failed) return; failed = true; fs.unlink(tmpF, () => {}); err(res, 500, `write failed: ${e.code}`); });
+    req.on('error', () => { failed = true; release(); fs.unlink(tmpF, () => {}); res.destroy(); });
+    out.on('error', (e) => { if (failed) return; failed = true; release(); fs.unlink(tmpF, () => {}); err(res, 500, `write failed: ${e.code}`); });
     out.on('finish', () => {
       if (failed) return;
+      release();
       try { fs.renameSync(tmpF, target); }
       catch (e) { fs.unlink(tmpF, () => {}); return err(res, 500, `rename failed: ${e.code}`); }
       rec.n++; saveStore();
