@@ -207,6 +207,21 @@ ok('bad ttl -> 400', r.status === 400);
   const codes = two.map((x) => x.status).sort();
   ok('drop max=1: concurrent pair admits exactly one (' + codes.join(',') + ')', codes[0] === 201 && codes[1] === 410);
 }
+{ // Xen self-review: an aborted upload must release its reserved slot
+  jr = await fetch(`${abase2}/cfs/_drop?dir=${encodeURIComponent(rwDir + '/inbox2')}&ttl=1h&max=1`, { method: 'POST', headers: BAUTH });
+  const dp2 = await jr.json();
+  const http = await import('node:http');
+  await new Promise((res2) => {
+    const rq = http.request(`${abase2}/cfs/d/${dp2.code}?name=abort.bin`, { method: 'POST' }, () => {});
+    rq.on('error', () => {});
+    rq.write(Buffer.alloc(4 * 1024 * 1024));
+    rq.write(Buffer.alloc(4 * 1024 * 1024));
+    setTimeout(() => { rq.destroy(); res2(); }, 100);
+  });
+  await new Promise((res2) => setTimeout(res2, 300));
+  r = await fetch(`${abase2}/cfs/d/${dp2.code}?name=after-abort.bin`, { method: 'POST', body: 'hello' });
+  ok('aborted upload releases the slot', r.status === 201);
+}
 r = await fetch(`${abase2}/cfs/_share?path=${encodeURIComponent(rwDir + '/note.md')}&ttl=1s`, { method: 'POST', headers: BAUTH });
 { const sh2 = await r.json();
   await new Promise((res2) => setTimeout(res2, 1200));

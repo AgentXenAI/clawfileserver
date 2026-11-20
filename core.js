@@ -523,7 +523,7 @@ ${tag}`;
     const tmp = `${p}.upload-${process.pid}-${Date.now()}`;
     const out = fs.createWriteStream(tmp);
     const maxPut = cfg.maxPutBytes || 512 * 1024 * 1024;
-    let size = 0, aborted = false;
+    let size = 0, aborted = false, done = false;
     // Xen audit 2026-11-19: cap PUT body size (drop portals have their own
     // maxUploadBytes; PUT previously had none — disk-exhaustion DoS).
     if (Number(req.headers['content-length']) > maxPut) {
@@ -540,9 +540,16 @@ ${tag}`;
       }
     });
     req.on('error', () => { aborted = true; fs.unlink(tmp, () => {}); res.destroy(); });
+    // Xen self-review 2026-11-19: clean disconnect left the tmp file on disk
+    // forever. Treat 'close' as an abort ONLY if the body never fully arrived
+    // ('end' not seen) — 'close' can legitimately race ahead of 'finish'.
+    let ended = false;
+    req.on('end', () => { ended = true; });
+    req.on('close', () => { if (!ended && !done && !aborted) { aborted = true; fs.unlink(tmp, () => {}); } });
     out.on('error', (e) => { if (aborted) return; aborted = true; fs.unlink(tmp, () => {}); err(res, 500, `write failed: ${e.code}`); });
     out.on('finish', () => {
       if (aborted) return;
+      done = true;
       try { fs.renameSync(tmp, p); }
       catch (e) { fs.unlink(tmp, () => {}); return err(res, 500, `rename failed: ${e.code}`); }
       log.info?.(`clawfileserver upload ${p} (${fmtSize(size)})`);
@@ -1072,7 +1079,6 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
     if (rec.inflight >= 3) return err(res, 429, 'too many concurrent uploads for this portal');
     const status = statusOf(rec);
     if (status !== 'active') return err(res, 410, `this drop portal is ${status}`);
-    rec.inflight++;
     const qp = new URLSearchParams((req.url || '').split('?')[1] || '');
     const name = safeName(qp.get('name') || req.headers['x-filename'] || 'file');
     const maxBytes = shCfg.maxUploadBytes || 2 * 1024 ** 3;
@@ -1084,6 +1090,10 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
       if (g.err) return err(res, 403, g.err);
     }
     try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { return err(res, 500, `mkdir failed: ${e.code}`); }
+    // Xen self-review 2026-11-19: reserve AFTER the sync pre-checks (still
+    // atomic — no await between check and increment) so gate/mkdir failures
+    // cannot leak a slot.
+    rec.inflight++;
     let target = path.join(dir, name);
     if (fs.existsSync(target)) {
       const ext = path.extname(name);
@@ -1105,6 +1115,12 @@ f.addEventListener('change',(e)=>{[...e.target.files].forEach(up);});
       }
     });
     req.on('error', () => { failed = true; release(); fs.unlink(tmpF, () => {}); res.destroy(); });
+    // Xen self-review 2026-11-19: a client disconnect that fires neither
+    // 'error' nor 'finish' must release the reservation — but only when the
+    // body never fully arrived ('close' can race ahead of 'finish' harmlessly).
+    let ended = false;
+    req.on('end', () => { ended = true; });
+    req.on('close', () => { if (!ended && !released) { failed = true; release(); fs.unlink(tmpF, () => {}); } });
     out.on('error', (e) => { if (failed) return; failed = true; release(); fs.unlink(tmpF, () => {}); err(res, 500, `write failed: ${e.code}`); });
     out.on('finish', () => {
       if (failed) return;
